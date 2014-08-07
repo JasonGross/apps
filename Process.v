@@ -68,45 +68,21 @@ Section process.
     -> traceOf (Parallel pr1 pr2) tr
   | TrDone : forall pr, traceOf pr SNil. (* Scheduler might always give up on a process. *)
 
-  Section traces.
-    Variable which : string -> Prop.
-    (** Which subset of channels are we paying attention to? *)
+  CoInductive traceEqual : trace -> trace -> Prop :=
+  | TrNil : traceEqual SNil SNil
+  | TrCons : forall v tr1 tr2, traceEqual tr1 tr2
+    -> traceEqual (SCons v tr1) (SCons v tr2).
 
-    (** A trace never mentions any of the channels we care about. *)
-    CoInductive noneRelevant : trace -> Prop :=
-    | NrNil : noneRelevant SNil
-    | NrCons : forall v tr,
-      ~which (projT1 (snd v))
-      -> noneRelevant (SCons v tr).
+  Theorem traceEqual_refl : forall tr, traceEqual tr tr.
+  Proof.
+    cofix; destruct tr; constructor; auto.
+  Qed.
 
-    (** Find the first matching event in a trace. *)
-    Inductive firstRelevant : trace -> direction * sigT chs -> trace -> Prop :=
-    | FrFound : forall v tr,
-      which (projT1 (snd v))
-      -> firstRelevant (SCons v tr) v tr
-    | FrMore : forall v tr v' tr',
-      ~which (projT1 (snd v))
-      -> firstRelevant tr v' tr'
-      -> firstRelevant (SCons v tr) v' tr'.
-
-    (** Compare two traces, considering only a restricted set of channels. *)
-    CoInductive traceRefines : trace -> trace -> Prop :=
-    | TrNone : forall tr1 tr2,
-      noneRelevant tr1
-      -> noneRelevant tr2
-      -> traceRefines tr1 tr2
-    | TrSome : forall tr1 tr2 v tr1' tr2',
-      firstRelevant tr1 v tr1'
-      -> firstRelevant tr2 v tr2'
-      -> traceRefines tr1' tr2'
-      -> traceRefines tr1 tr2.
-
-    (** Consider all traces of two processes. *)
-    Definition refines (pr1 pr2 : process) :=
-      forall tr1, traceOf pr1 tr1
-        -> exists tr2, traceOf pr2 tr2
-          /\ traceRefines tr1 tr2.
-  End traces.
+  (** Consider all traces of two processes. *)
+  Definition refines (pr1 pr2 : process) :=
+    forall tr1, traceOf pr1 tr1
+      -> exists tr2, traceOf pr2 tr2
+        /\ traceEqual tr1 tr2.
 End process.
 
 
@@ -119,4 +95,5 @@ Infix "||" := Parallel.
 Export String.
 Global Open Scope string_scope.
 
-Hint Constructors interleave traceOf noneRelevant firstRelevant traceRefines.
+Hint Constructors interleave traceOf traceEqual.
+Hint Resolve traceEqual_refl.
