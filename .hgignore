@@ -1,0 +1,10 @@
+syntax: glob
+
+*~
+\#*\#
+
+*.depend
+Makefile.coq
+*.vo
+*.glob
+*.v.d
