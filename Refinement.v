@@ -254,6 +254,15 @@ Section Refinement.
     inv H; eauto.
   Qed.
 
+  Lemma normProcD : forall p, norm (procD p) (p :: nil)%list.
+  Proof.
+    unfold norm, refines; simpl; intuition.
+    econstructor; eauto.
+    inv H; eauto.
+    inv H3; eauto.
+    apply interleave_nil2 in H5; subst; eauto.
+  Qed.
+
   Theorem normParallel : forall p1 ps1 p2 ps2, norm p1 ps1
     -> norm p2 ps2
     -> norm (Parallel p1 p2) (ps1 ++ ps2)%list.
@@ -857,7 +866,8 @@ Section Refinement.
   Qed.
 
   Theorem oneStep : forall ps2 ps1,
-    (forall P1 ch v k1 ps1', pick1 ps1 {| Chans := P1; Code := NSend ch v k1 |} ps1'
+    (forall P1 ch v k1 p ps1', pick1 ps1 p ps1'
+       -> p = {| Chans := P1; Code := NSend ch v k1 |}
        -> P1 (Send, ch)
        -> exists P2 k2 ps2', pick1 ps2 {| Chans := P2; Code := NSend ch v k2 |} ps2'
                              /\ P2 (Send, ch)
@@ -881,7 +891,7 @@ Section Refinement.
     intros; eapply oneStep'; eauto; intros.
 
     apply Permutation_pick1 in H2; firstorder.
-    specialize (H _ _ _ _ _ H4); firstorder.
+    specialize (H P1 _ v k1 _ _ H4); firstorder.
     repeat esplit.
     eauto using pick1_Permutation.
     eauto.
