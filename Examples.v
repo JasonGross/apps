@@ -1,8 +1,29 @@
 Require Import Process Refinement List Eqdep_dec.
 
 
-Ltac normalize := repeat (solve [ apply normProcD | eapply normBasic; repeat (constructor; intros) ]
-                       || eapply normParallel).
+Ltac normBasic' E :=
+  match eval simpl in E with
+  | fun x : ?A => @Done ?chs =>
+    constr:(fun x : A => @NDone chs)
+  | fun x : ?A => @DoSend ?chs ?ch (@?v x) (@?k x) =>
+    let E' := normBasic' k
+      in constr:(fun x : A => @NSend chs ch (v x) (E' x))
+  | fun x : ?A => @DoRecv ?chs ?ch (@?k x) =>
+    let E' := normBasic' (fun p : A * _ => k (fst p) (snd p))
+      in constr:(fun x : A => @NRecv chs ch (fun y => E' (x, y)))
+  end.
+
+Ltac normBasic E :=
+  let E := eval hnf in E in
+  let E' := normBasic' (fun _ : unit => E) in
+    eval simpl in (E' tt).
+
+Ltac normalize := solve [ repeat (solve [ apply normProcD | eapply normBasic;
+                                  match goal with
+                                  | [ |- normalize _ ?E ?F ] => let E' := normBasic E in unify F E';
+                                    repeat (constructor; intros)
+                                  end ]
+                       || eapply normParallel) ].
 
 Ltac inverter H := let H' := fresh "H'" in
                    generalize H; intro H'; apply (f_equal (@Chans _)) in H'; simpl in H'; subst;
@@ -65,24 +86,22 @@ Ltac picker' ls toHere k :=
 
 Ltac picker :=
   match goal with
-  | [ |- exists P k ps', pick1 ?ls _ _ /\ P _ /\ refines _ _ ] =>
-    picker' ls idtac ltac:(fun tac => do 4 esplit; [ tac | split; [ simpl; tauto | ] ])
+  | [ |- exists P k ps', pick1 ?ls _ _ /\ P _ /\ _ ] =>
+    picker' ls idtac ltac:(fun tac => do 4 esplit; [ tac | split; [ simpl; tauto | intros ] ])
   end.
 
 Ltac refines := eapply refines_normalize; [ normalize | normalize | oneStep; try picker ].
 
-Module DoneDone.
+Module Done.
   Definition chs : channels := fun _ => nat.
 
-  Definition pr1 : process chs := Done.
+  Definition pr : process chs := Done.
 
-  Definition pr2 : process chs := Done.
-
-  Theorem pr1_pr2 : refines pr1 pr2.
+  Theorem pr_pr : refines pr pr.
   Proof.
     refines.
   Qed.
-End DoneDone.
+End Done.
 
 Module DoneSend.
   Definition chs : channels := fun _ => nat.
@@ -97,16 +116,39 @@ Module DoneSend.
   Qed.
 End DoneSend.
 
-Module SendSend.
+Module Send.
   Definition chs : channels := fun _ => nat.
 
-  Definition pr1 : process chs := #!chs["X", 0], Done.
+  Definition pr : process chs := #!chs["X", 0], Done.
 
-  Definition pr2 : process chs := #!chs["X", 0], Done.
-
-  Theorem pr1_pr2 : refines pr1 pr2.
+  Theorem pr_pr : refines pr pr.
   Proof.
     refines.
     refines.
   Qed.
-End SendSend.
+End Send.
+
+Module Recv.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr : process chs := #?chs["X", x], Done.
+
+  Theorem pr_pr : refines pr pr.
+  Proof.
+    refines.
+    refines.
+  Qed.
+End Recv.
+
+Module RecvSend.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr : process chs := #?chs["X", x], #!chs["Y", x], Done.
+
+  Theorem pr_pr : refines pr pr.
+  Proof.
+    refines.
+    refines.
+    refines.
+  Qed.
+End RecvSend.
