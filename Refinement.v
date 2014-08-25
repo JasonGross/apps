@@ -357,6 +357,15 @@ Section Refinement.
     eauto.
   Qed.
 
+  Theorem refines_normalize : forall p1 p2 ps1 ps2,
+    norm p1 ps1
+    -> norm p2 ps2
+    -> refines (procsD ps1) (procsD ps2)
+    -> refines p1 p2.
+  Proof.
+    firstorder.
+  Qed.
+
 
   (** * One step of a refinement proof between two normalizes processes *)
 
@@ -860,14 +869,13 @@ Section Refinement.
                              /\ P2 (Recv, ch)
                              /\ forall v, refines (procsD ({| Chans := P1; Code := k1 v |} :: ps1'))
                                                   (procsD ({| Chans := P2; Code := k2 v |} :: ps2')))
-    -> (forall P1 P2 ch v k1 k2 ps', Permutation ps1 ({| Chans := P1; Code := NSend ch v k1 |}
-                                                     :: {| Chans := P2; Code := NRecv ch k2 |}
-                                                     :: ps')
+    -> (forall P1 P2 ch v k1 k2 ps'' ps', pick1 ps1 {| Chans := P1; Code := NSend ch v k1 |} ps'
+       -> pick1 ps' {| Chans := P2; Code := NRecv ch k2 |} ps''
        -> P1 (Send, ch)
        -> P2 (Recv, ch)
        -> refines (procsD ({| Chans := P1; Code := k1 |}
                              :: {| Chans := P2; Code := k2 v |}
-                             :: ps')) (procsD ps2))
+                             :: ps'')) (procsD ps2))
     -> refines (procsD ps1) (procsD ps2).
   Proof.
     intros; eapply oneStep'; eauto; intros.
@@ -901,6 +909,26 @@ Section Refinement.
     eassumption.
     eauto.
     auto.
+
+    apply Permutation_pick1 in H2.
+    destruct H2; intuition.
+    apply Permutation_sym in H5.
+    apply Permutation_pick1 in H5.
+    destruct H5; intuition.
+    specialize (H1 _ _ _ _ _ _ _ _ H6 H7); intuition.
+    do 2 intro.
+    apply H1.
+    inv H2; eauto.
+    inv H11; eauto.
+    econstructor.
+    eauto.
+    econstructor.
+    eauto.
+    eapply Permutation_traceOf.
+    eassumption.
+    eauto.
+    eauto.
+    eauto.
   Qed.
 
 End Refinement.
