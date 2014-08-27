@@ -19,11 +19,14 @@ Ltac normBasic E :=
     eval simpl in (E' tt).
 
 Ltac normalize := solve [ repeat (solve [ apply normProcD | eapply normBasic;
-                                  match goal with
-                                  | [ |- normalize _ ?E ?F ] => let E' := normBasic E in unify F E';
-                                    repeat (constructor; intros)
-                                  end ]
-                       || eapply normParallel) ].
+                                                            match goal with
+                                                            | [ |- normalize _ ?E ?F ] =>
+                                                              let E' := normBasic E in
+                                                              unify F E';
+                                                                repeat (constructor; intros)
+                                                            end ]
+                       || eapply normParallel || eapply normRestrictTrivial
+                       || eapply normRestrictMany) ].
 
 Ltac inverter H := let H' := fresh "H'" in
                    generalize H; intro H'; apply (f_equal (@Chans _)) in H'; simpl in H'; subst;
@@ -58,13 +61,7 @@ Ltac inverter2 H := let H' := fresh "H'" in generalize H; intro H';
 Ltac oneStep0 :=
   match goal with
   | _ => discriminate
-  | [ H : _ :: _ = _ :: _ |- _ ] => 
-    inversion H; clear H; intros;
-    repeat match goal with
-                                  | [ x : _ |- _ ] => subst x
-                                  | [ H : existT _ _ _ = existT _ _ _ |- _ ] =>
-                                    apply (inj_pair2_eq_dec _ string_dec) in H; subst
-           end
+  | [ H : _ :: _ = _ :: _ |- _ ] => inv H
   | [ H : pick1 ?ls _ _ |- _ ] => remember ls; inv H
 
   | [ H : Build_proc _ _ _ = Build_proc _ _ _ |- _ ] => inverter H
@@ -90,7 +87,14 @@ Ltac picker :=
     picker' ls idtac ltac:(fun tac => do 4 esplit; [ tac | split; [ simpl; tauto | intros ] ])
   end.
 
-Ltac refines := eapply refines_normalize; [ normalize | normalize | oneStep; try picker ].
+Ltac simper := intuition;
+  repeat match goal with
+         | [ H : True |- _ ] => clear H
+         | [ H : ?X = ?X |- _ ] => clear H
+         end; unfold procsD; simpl; try discriminate.
+
+Ltac refines := eapply refines_normalize; [ normalize | normalize | oneStep; try picker ];
+                simper.
 
 Module Done.
   Definition chs : channels := fun _ => nat.
@@ -152,3 +156,58 @@ Module RecvSend.
     refines.
   Qed.
 End RecvSend.
+
+Module SwapSend.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr1 : process chs := (#!chs["X", 0], Done) || (#!chs["Y", 1], Done).
+
+  Definition pr2 : process chs := (#!chs["Y", 1], Done) || (#!chs["X", 0], Done).
+
+  Theorem pr1_pr2 : refines pr1 pr2.
+  Proof.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+  Qed.
+End SwapSend.
+
+Module SwapSendRecv.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr1 : process chs := (#!chs["X", 0], Done) || (#?chs["Y", x], #!chs["Z", x], Done).
+
+  Definition pr2 : process chs := (#?chs["Y", x], #!chs["Z", x], Done) || (#!chs["X", 0], Done).
+
+  Theorem pr1_pr2 : refines pr1 pr2.
+  Proof.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+  Qed.
+End SwapSendRecv.
+
+Module WithSelf.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr1 : process chs := ##[(Send, "X")],
+    (#?chs["Y", x], #!chs["X", S x], Done)
+    || (#!chs["Y", 0], Done).
+
+  Definition pr2 : process chs := #!chs["X", 1], Done.
+
+  Theorem pr1_pr2 : refines pr1 pr2.
+  Proof.
+    refines.
+    refines.
+    refines.
+  Qed.
+End WithSelf.

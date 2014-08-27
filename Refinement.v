@@ -1,10 +1,14 @@
 Require Import List Permutation Process Eqdep_dec.
 
 
-Ltac inv H := inversion H; clear H; subst;
+Ltac my_subst := repeat match goal with
+                        | [ x : _ |- _ ] => subst x
+                        end.
+
+Ltac inv H := inversion H; clear H; my_subst;
               repeat match goal with
                      | [ H : existT _ _ _ = existT _ _ _ |- _ ] =>
-                       apply (inj_pair2_eq_dec _ string_dec) in H; subst
+                       apply (inj_pair2_eq_dec _ string_dec) in H; my_subst
                      end; simpl in *.
 
 Section Refinement.
@@ -22,7 +26,10 @@ Section Refinement.
     Code : proc0
   }.
 
-  Definition procs := list proc.
+  Record procs := {
+    TopChans : direction * channel -> Prop;
+    Procs : list proc
+  }.
 
   CoFixpoint proc0D (p : proc0) : process chs :=
     match p with
@@ -34,11 +41,14 @@ Section Refinement.
   Definition procD (p : proc) : process chs :=
     Restrict (Chans p) (proc0D (Code p)).
 
-  Fixpoint procsD (ps : procs) : process chs :=
+  Fixpoint procsD' (ps : list proc) : process chs :=
     match ps with
     | nil => Done
-    | p :: ps' => Parallel (procD p) (procsD ps')
+    | p :: ps' => Parallel (procD p) (procsD' ps')
     end.
+
+  Definition procsD (ps : procs) : process chs :=
+    Restrict (TopChans ps) (procsD' (Procs ps)).
 
   Definition norm (p : process chs) (ps : procs) : Prop :=
     refines p (procsD ps)
@@ -71,7 +81,6 @@ Section Refinement.
     eauto.
   Qed.
 
-
   Lemma normalize_bwd : forall p'0 tr, traceOf p'0 tr
     -> forall p p', normalize p p'
       -> p'0 = proc0D p'
@@ -81,12 +90,6 @@ Section Refinement.
     try match goal with
         | [ H : _ = proc0D _ |- _ ] => rewrite expand_proc0D in H; simpl in H; inv H; eauto
         end.
-
-    rewrite expand_proc0D in *; simpl in *.
-    inversion H1; clear H1.
-    destruct H3.
-    apply (inj_pair2_eq_dec _ string_dec) in H4; subst.
-    eauto.
   Qed.
 
   Lemma traceAll_True : forall p, traceAll (chs := chs) (fun _ => True) p.
@@ -126,39 +129,30 @@ Section Refinement.
   Qed.
 
   Theorem normBasic : forall p p', normalize p p'
-    -> norm p ({| Chans := fun _ => True; Code := p' |} :: nil).
+    -> norm p {| TopChans := fun _ => True;
+                 Procs := {| Chans := fun _ => True; Code := p' |} :: nil |}.
   Proof.
     split; unfold procsD, procD; simpl.
 
     do 2 intro.
+    econstructor.
     econstructor.
     2: eauto.
     2: eauto.
     econstructor.
     eauto using normalize_fwd.
     auto.
+    eauto.
 
     do 2 intro.
     inv H0; eauto.
+    inv H3; eauto.
+    inv H2.
     inv H4.
-    apply interleave_nil2 in H6; subst.
-    inv H3; eauto.
+    apply interleave_nil2 in H7; subst.
     eauto using normalize_bwd.
-  Qed.
-
-  Theorem normDone : norm Done ({| Chans := fun _ => True; Code := NDone |} :: nil).
-  Proof.
-    split; simpl; do 2 intro.
-    eauto.
-    inv H; eauto.
-    inv H3; eauto.
-    rewrite (expand_ok (procD
-            {| Chans := fun _ : direction * channel => True; Code := NDone |})) in H2; simpl in H2.
-    inv H2; eauto.
-    rewrite (expand_ok (proc0D NDone)) in H1; simpl in H1.
-    inv H1; eauto.
-    inv H5; eauto.
-    inv H5; eauto.
+    inv H4.
+    apply interleave_nil2 in H7; subst; eauto.
   Qed.
 
   Theorem Parallel_comm : forall p1 p2,
@@ -233,16 +227,49 @@ Section Refinement.
     inv H1; eauto.
   Qed.
 
-  Lemma procsD_app1 : forall ps2 ps1,
-    refines (procsD (ps1 ++ ps2)%list) (Parallel (procsD ps1) (procsD ps2)).
+  Lemma refines_Restrict_True1 : forall p,
+    refines (chs := chs) p (Restrict (fun _ => True) p).
   Proof.
-    induction ps1; simpl; hnf; intros; eauto.
+    do 3 intro.
+    eauto.
+  Qed.
+
+  Lemma refines_Restrict_True2 : forall p,
+    refines (chs := chs) (Restrict (fun _ => True) p) p.
+  Proof.
+    do 3 intro.
+    inv H; eauto.
+  Qed.
+  
+  Lemma refines_trans : forall p q r, refines (chs := chs) p q
+    -> refines q r
+    -> refines p r.
+  Proof.
+    firstorder.
+  Qed.
+
+  Lemma procsD_app1' : forall ps2 ps1,
+    refines (procsD' (ps1 ++ ps2))
+            (Parallel (procsD' ps1) (procsD' ps2)).
+  Proof.
+    intros; induction ps1; simpl; hnf; intros; eauto.
     apply Parallel_assoc1.
     inv H; eauto.
   Qed.
 
-  Lemma procsD_app2 : forall ps2 ps1,
-    refines (Parallel (procsD ps1) (procsD ps2)) (procsD (ps1 ++ ps2)%list).
+  Lemma procsD_app1 : forall ps2 ps1,
+    refines (procsD {| TopChans := fun _ => True; Procs := ps1 ++ ps2|})
+            (Parallel (procsD {| TopChans := fun _ => True; Procs := ps1 |})
+                      (procsD {| TopChans := fun _ => True; Procs := ps2 |})).
+  Proof.
+    unfold procsD; simpl; intros.
+    eapply refines_trans; [ apply refines_Restrict_True2 | ].
+    eapply refines_trans; [ | apply Parallel_cong; apply refines_Restrict_True1 ].
+    apply procsD_app1'.
+  Qed.
+
+  Lemma procsD_app2' : forall ps2 ps1,
+    refines (Parallel (procsD' ps1) (procsD' ps2)) (procsD' (ps1 ++ ps2)).
   Proof.
     induction ps1; simpl; hnf; intros; eauto.
 
@@ -254,18 +281,32 @@ Section Refinement.
     inv H; eauto.
   Qed.
 
-  Lemma normProcD : forall p, norm (procD p) (p :: nil)%list.
+  Lemma procsD_app2 : forall ps2 ps1,
+    refines (Parallel (procsD {| TopChans := fun _ => True; Procs := ps1 |})
+                      (procsD {| TopChans := fun _ => True; Procs := ps2 |}))
+            (procsD {| TopChans := fun _ => True;
+                       Procs := ps1 ++ ps2 |}).
   Proof.
-    unfold norm, refines; simpl; intuition.
-    econstructor; eauto.
-    inv H; eauto.
-    inv H3; eauto.
-    apply interleave_nil2 in H5; subst; eauto.
+    unfold procsD; simpl; intros.
+    eapply refines_trans; [ | apply refines_Restrict_True1 ].
+    eapply refines_trans; [ apply Parallel_cong; apply refines_Restrict_True2 | ].
+    apply procsD_app2'.
   Qed.
 
-  Theorem normParallel : forall p1 ps1 p2 ps2, norm p1 ps1
-    -> norm p2 ps2
-    -> norm (Parallel p1 p2) (ps1 ++ ps2)%list.
+  Lemma normProcD : forall p, norm (procD p) {| TopChans := fun _ => True; Procs := p :: nil |}.
+  Proof.
+    unfold norm, refines; simpl; intuition.
+    econstructor; eauto; simpl.
+    eauto.
+    inv H; eauto.
+    inv H2; eauto.
+    inv H3.
+    apply interleave_nil2 in H6; subst; eauto.
+  Qed.
+
+  Theorem normParallel : forall p1 ps1 p2 ps2, norm p1 {| TopChans := fun _ => True; Procs := ps1 |}
+    -> norm p2 {| TopChans := fun _ => True; Procs := ps2 |}
+    -> norm (Parallel p1 p2) {| TopChans := fun _ => True; Procs := ps1 ++ ps2 |}.
   Proof.
     split; simpl; do 2 intro.
 
@@ -297,72 +338,52 @@ Section Refinement.
     induction 2; eauto.
   Qed.
 
-  Theorem normRestrict1 : forall (P : _ -> Prop) p p',
-    norm p (p' :: nil)
-    -> norm (Restrict P p) ({| Code := Code p';
-                               Chans := fun x => P x /\ Chans p' x |} :: nil).
-  Proof.
-    unfold norm, refines, procsD, procD; simpl; intuition.
-
-    inv H; eauto.
-    apply H0 in H4; clear H0.
-    inv H4; eauto.
-    inv H3.
-    apply interleave_nil2 in H7; subst.
-    inv H2; eauto.
-    econstructor.
-    2: eauto.
-    2: eauto.
-    econstructor.
-    eauto.
-    auto using traceAll_and.
-
-    inv H; eauto.
-    inv H5.
-    apply interleave_nil2 in H7; subst.
-    inv H4; eauto.
-    econstructor; eauto.
-    apply H1.
-    econstructor.
-    2: eauto.
-    2: eauto.
-    2: eapply traceAll_weaken; [ | eassumption ]; cbv beta; tauto.
-    econstructor.
-    eauto.
-    eapply traceAll_weaken; [ | eassumption ]; cbv beta; tauto.
-  Qed.
-
-  Lemma traceAll_interleave : forall tr1 tr2 tr, interleave (chs := chs) tr1 tr2 tr
-    -> forall P, traceAll P tr1
-      -> traceAll P tr2
-      -> traceAll P tr.
-  Proof.
-    induction 1; inversion 1; subst; inversion 1; subst; eauto;
-    econstructor; eauto; apply IHinterleave; eauto.
-  Qed.
-
-  Theorem normRestrictMany : forall (P : _ -> Prop) p ps,
+  Theorem normRestrictTrivial : forall p ps,
     norm p ps
-    -> Forall (fun r => forall x, Chans r x -> P x) ps
-    -> norm (Restrict P p) ps.
+    -> norm (Restrict (fun _ => True) p) ps.
+  Proof.
+    unfold norm, refines; intuition.
+    inv H; eauto.
+  Qed.
+
+  Theorem normRestrictMany : forall P p ps,
+    norm p {| TopChans := fun _ => True; Procs := ps |}
+    -> norm (Restrict P p) {| TopChans := P; Procs := ps |}.
   Proof.
     unfold norm, refines; intuition.
 
     inv H; eauto.
-
-    econstructor.
-    auto.
-    clear H1 H2.
-    generalize dependent tr.
-    induction H0; simpl; intros.
-    inv H; eauto.
-    inv H1; eauto.
-    unfold procD in H4.
+    apply H0 in H4.
     inv H4; eauto.
-    eapply traceAll_interleave; eauto.
-    eapply traceAll_weaken; eauto.
+    econstructor; eauto.
 
-    apply interleave_nil1 in H7; subst.
+    inv H; eauto.
+    econstructor; eauto.
+    apply H1.
+    econstructor; eauto.
+  Qed.
+
+  Theorem normRestrict1 : forall (P : _ -> Prop) p p',
+    norm p {| TopChans := fun _ => True; Procs := {| Chans := fun _ => True; Code := p' |} :: nil |}
+    -> norm (Restrict P p) {| TopChans := fun _ => True;
+                              Procs := {| Chans := P; Code := p' |} :: nil |}.
+  Proof.
+    unfold norm, refines, procsD, procD; simpl; unfold procD; simpl; intuition.
+
+    inv H; eauto.
+    apply H0 in H4; clear H0.
+    inv H4; eauto.
+    inv H2; eauto.
+    inv H4.
+    apply interleave_nil2 in H8; subst.
+    inv H3; eauto.
+
+    inv H; eauto.
+    inv H4; eauto.
+    inv H5.
+    apply interleave_nil2 in H8; subst.
+    inv H3; eauto.
+    econstructor; try eassumption.
     eauto.
   Qed.
 
@@ -376,7 +397,7 @@ Section Refinement.
   Qed.
 
 
-  (** * One step of a refinement proof between two normalizes processes *)
+  (** * One step of a refinement proof between two normalized processes *)
 
   Open Scope list_scope.
 
@@ -386,7 +407,7 @@ Section Refinement.
   Qed.
 
   (* Recharacterize when a process system steps. *)
-  Lemma whenStep : forall ps tr, traceOf (procsD ps) tr
+  Lemma whenStep' : forall ps tr, traceOf (procsD' ps) tr
     -> (* Trace ends *)
     tr = nil
 
@@ -394,14 +415,14 @@ Section Refinement.
     (exists tr' P ch v k ps', Permutation ps ({| Chans := P; Code := NSend ch v k |} :: ps')
       /\ tr = (Send, existT _ ch v) :: tr'
       /\ P (Send, ch)
-      /\ traceOf (procsD ({| Chans := P;
+      /\ traceOf (procsD' ({| Chans := P;
                              Code := k |} :: ps')) tr')
 
     \/ (* Recv *)
     (exists tr' P ch v k ps', Permutation ps ({| Chans := P; Code := NRecv ch k |} :: ps')
       /\ tr = (Recv, existT _ ch v) :: tr'
       /\ P (Recv, ch)
-      /\ traceOf (procsD ({| Chans := P;
+      /\ traceOf (procsD' ({| Chans := P;
                              Code := k v |} :: ps')) tr')
 
     \/ (* Rendezvous *)
@@ -410,7 +431,7 @@ Section Refinement.
                          :: {| Chans := P2; Code := NRecv ch k2 |} :: ps')
        /\ P1 (Send, ch)
        /\ P2 (Recv, ch)
-       /\ traceOf (procsD ({| Chans := P1;
+       /\ traceOf (procsD' ({| Chans := P1;
                               Code := k1 |}
                              :: {| Chans := P2;
                                    Code := k2 v |}
@@ -705,9 +726,63 @@ Section Refinement.
     eauto.
   Qed.
 
-  Theorem Permutation_traceOf : forall ps1 ps2, Permutation ps1 ps2
-    -> forall tr, traceOf (procsD ps1) tr
-      -> traceOf (procsD ps2) tr.
+  Lemma whenStep : forall TP ps tr, traceOf (procsD {| TopChans := TP; Procs := ps |}) tr
+    -> (* Trace ends *)
+    tr = nil
+
+    \/ (* Send *)
+    (exists tr' P ch v k ps', Permutation ps ({| Chans := P; Code := NSend ch v k |} :: ps')
+      /\ tr = (Send, existT _ ch v) :: tr'
+      /\ TP (Send, ch)
+      /\ P (Send, ch)
+      /\ traceOf (procsD {| TopChans := TP;
+                            Procs := {| Chans := P;
+                                        Code := k |} :: ps' |}) tr')
+
+    \/ (* Recv *)
+    (exists tr' P ch v k ps', Permutation ps ({| Chans := P; Code := NRecv ch k |} :: ps')
+      /\ tr = (Recv, existT _ ch v) :: tr'
+      /\ TP (Recv, ch)
+      /\ P (Recv, ch)
+      /\ traceOf (procsD {| TopChans := TP;
+                            Procs := {| Chans := P;
+                                        Code := k v |} :: ps' |}) tr')
+
+    \/ (* Rendezvous *)
+    (exists P1 P2 ch v k1 k2 ps',
+       Permutation ps ({| Chans := P1; Code := NSend ch v k1 |}
+                         :: {| Chans := P2; Code := NRecv ch k2 |} :: ps')
+       /\ P1 (Send, ch)
+       /\ P2 (Recv, ch)
+       /\ traceOf (procsD {| TopChans := TP;
+                             Procs := {| Chans := P1;
+                                         Code := k1 |}
+                                        :: {| Chans := P2;
+                                              Code := k2 v |}
+                                        :: ps' |}) tr).
+  Proof.
+    intros.
+    inv H; eauto.
+    apply whenStep' in H2; firstorder.
+
+    subst; inv H4.
+    right; left.
+    repeat esplit; eauto.
+    econstructor; eauto.
+
+    subst; inv H4.
+    do 2 right; left.
+    repeat esplit; eauto.
+    econstructor; eauto.
+
+    do 3 right.
+    repeat esplit; eauto.
+    econstructor; eauto.
+  Qed.
+
+  Lemma Permutation_traceOf' : forall ps1 ps2, Permutation ps1 ps2
+    -> forall tr, traceOf (procsD' ps1) tr
+      -> traceOf (procsD' ps2) tr.
   Proof.
     induction 1; simpl; intuition.
 
@@ -720,28 +795,47 @@ Section Refinement.
     apply Parallel_assoc1; auto.
   Qed.
 
-  Theorem oneStep' : forall ps2 ps1,
+  Theorem Permutation_traceOf : forall ps1 ps2, Permutation ps1 ps2
+    -> forall P tr, traceOf (procsD {| TopChans := P; Procs := ps1 |}) tr
+      -> traceOf (procsD {| TopChans := P; Procs := ps2 |}) tr.
+  Proof.
+    intros.
+    inv H0; eauto.
+    econstructor; eauto using Permutation_traceOf'.
+  Qed.
+
+  Lemma oneStep' : forall (TP1 TP2 : _ -> Prop) ps2 ps1,
     (forall P1 ch v k1 ps1', Permutation ps1 ({| Chans := P1; Code := NSend ch v k1 |} :: ps1')
        -> P1 (Send, ch)
+       -> TP1 (Send, ch)
        -> exists P2 k2 ps2', Permutation ps2 ({| Chans := P2; Code := NSend ch v k2 |} :: ps2')
                              /\ P2 (Send, ch)
-                             /\ refines (procsD ({| Chans := P1; Code := k1 |} :: ps1'))
-                                        (procsD ({| Chans := P2; Code := k2 |} :: ps2')))
+                             /\ TP2 (Send, ch)
+                             /\ refines (procsD {| TopChans := TP1;
+                                                   Procs := {| Chans := P1; Code := k1 |} :: ps1' |})
+                                        (procsD {| TopChans := TP2;
+                                                   Procs := {| Chans := P2; Code := k2 |} :: ps2' |}))
     -> (forall P1 ch k1 ps1', Permutation ps1 ({| Chans := P1; Code := NRecv ch k1 |} :: ps1')
        -> P1 (Recv, ch)
+       -> TP1 (Recv, ch)
        -> exists P2 k2 ps2', Permutation ps2 ({| Chans := P2; Code := NRecv ch k2 |} :: ps2')
                              /\ P2 (Recv, ch)
-                             /\ forall v, refines (procsD ({| Chans := P1; Code := k1 v |} :: ps1'))
-                                                  (procsD ({| Chans := P2; Code := k2 v |} :: ps2')))
+                             /\ TP2 (Recv, ch)
+                             /\ forall v, refines (procsD {| TopChans := TP1;
+                                                             Procs := {| Chans := P1; Code := k1 v |} :: ps1' |})
+                                                  (procsD {| TopChans := TP2;
+                                                             Procs := {| Chans := P2; Code := k2 v |} :: ps2' |}))
     -> (forall P1 P2 ch v k1 k2 ps', Permutation ps1 ({| Chans := P1; Code := NSend ch v k1 |}
                                                      :: {| Chans := P2; Code := NRecv ch k2 |}
                                                      :: ps')
        -> P1 (Send, ch)
        -> P2 (Recv, ch)
-       -> refines (procsD ({| Chans := P1; Code := k1 |}
-                             :: {| Chans := P2; Code := k2 v |}
-                             :: ps')) (procsD ps2))
-    -> refines (procsD ps1) (procsD ps2).
+       -> refines (procsD {| TopChans := TP1;
+                             Procs := {| Chans := P1; Code := k1 |}
+                                        :: {| Chans := P2; Code := k2 v |}
+                                        :: ps' |})
+                  (procsD {| TopChans := TP2; Procs := ps2 |}))
+    -> refines (procsD {| TopChans := TP1; Procs := ps1 |}) (procsD {| TopChans := TP2; Procs := ps2 |}).
   Proof.
     intros; do 2 intro.
     apply whenStep in H2; firstorder; subst; eauto.
@@ -750,18 +844,11 @@ Section Refinement.
     eapply Permutation_traceOf.
     apply Permutation_sym; eassumption.
     simpl.
-    assert (traceOf (procD {| Chans := x5; Code := x6 |} || procsD x7) x) by eauto.
-    inv H7; eauto.
-    inv H10; eauto.
+    assert (traceOf (Restrict TP2 (procD {| Chans := x5; Code := x6 |} || procsD' x7)) x) by eauto.
+    inv H9; eauto.
+    inv H12; eauto.
+    inv H11; eauto.
     econstructor.
-    econstructor.
-    rewrite expand_proc0D; simpl.
-    econstructor.
-    eauto.
-    eauto.
-    eauto.
-    eauto.
-    apply interleave_nil1 in H13; subst.
     econstructor.
     econstructor.
     rewrite expand_proc0D; simpl.
@@ -770,10 +857,34 @@ Section Refinement.
     eauto.
     eauto.
     eauto.
+    eauto.
+    apply interleave_nil1 in H16; subst.
+    econstructor.
     econstructor.
     econstructor.
     rewrite expand_proc0D; simpl.
     econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor.
+    eauto.
     eauto.
     eauto.
     eauto.
@@ -782,20 +893,13 @@ Section Refinement.
     specialize (H0 _ _ _ _ H2); firstorder.
     eapply Permutation_traceOf.
     apply Permutation_sym; eassumption.
-    simpl.
-    assert (traceOf (procD {| Chans := x0; Code := x3 x2 |} || procsD x4) x) by eauto.
-    apply H6 in H7.
-    inv H7; eauto.
-    inv H10; eauto.
+    assert (traceOf (Restrict TP1 (procD {| Chans := x0; Code := x3 x2 |} || procsD' x4)) x) by eauto.
+    unfold procsD in *; simpl in *.
+    apply H8 in H9.
+    inv H9; eauto.
+    inv H12; eauto.
+    inv H11; eauto.
     econstructor.
-    econstructor.
-    rewrite expand_proc0D; simpl.
-    econstructor.
-    eauto.
-    eauto.
-    eauto.
-    eauto.
-    apply interleave_nil1 in H13; subst.
     econstructor.
     econstructor.
     rewrite expand_proc0D; simpl.
@@ -804,10 +908,34 @@ Section Refinement.
     eauto.
     eauto.
     eauto.
+    eauto.
+    apply interleave_nil1 in H16; subst.
+    econstructor.
     econstructor.
     econstructor.
     rewrite expand_proc0D; simpl.
     econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor.
+    eauto.
     eauto.
     eauto.
     eauto.
@@ -865,60 +993,79 @@ Section Refinement.
     eauto.
   Qed.
 
-  Theorem oneStep : forall ps2 ps1,
+  Theorem oneStep : forall (TP1 TP2 : _ -> Prop) ps2 ps1,
     (forall P1 ch v k1 p ps1', pick1 ps1 p ps1'
        -> p = {| Chans := P1; Code := NSend ch v k1 |}
        -> P1 (Send, ch)
+       -> TP1 (Send, ch)
        -> exists P2 k2 ps2', pick1 ps2 {| Chans := P2; Code := NSend ch v k2 |} ps2'
                              /\ P2 (Send, ch)
-                             /\ refines (procsD ({| Chans := P1; Code := k1 |} :: ps1'))
-                                        (procsD ({| Chans := P2; Code := k2 |} :: ps2')))
+                             /\ TP2 (Send, ch)
+                             /\ refines (procsD {| TopChans := TP1;
+                                                   Procs := {| Chans := P1; Code := k1 |} :: ps1' |})
+                                        (procsD {| TopChans := TP2;
+                                                   Procs := {| Chans := P2; Code := k2 |} :: ps2' |}))
     -> (forall P1 ch k1 ps1', pick1 ps1 {| Chans := P1; Code := NRecv ch k1 |} ps1'
        -> P1 (Recv, ch)
+       -> TP1 (Recv, ch)
        -> exists P2 k2 ps2', pick1 ps2 {| Chans := P2; Code := NRecv ch k2 |} ps2'
                              /\ P2 (Recv, ch)
-                             /\ forall v, refines (procsD ({| Chans := P1; Code := k1 v |} :: ps1'))
-                                                  (procsD ({| Chans := P2; Code := k2 v |} :: ps2')))
+                             /\ TP2 (Recv, ch)
+                             /\ forall v, refines (procsD {| TopChans := TP1;
+                                                             Procs := {| Chans := P1; Code := k1 v |} :: ps1' |})
+                                                  (procsD {| TopChans := TP2;
+                                                             Procs := {| Chans := P2; Code := k2 v |} :: ps2' |}))
     -> (forall P1 P2 ch v k1 k2 ps'' ps', pick1 ps1 {| Chans := P1; Code := NSend ch v k1 |} ps'
        -> pick1 ps' {| Chans := P2; Code := NRecv ch k2 |} ps''
        -> P1 (Send, ch)
        -> P2 (Recv, ch)
-       -> refines (procsD ({| Chans := P1; Code := k1 |}
-                             :: {| Chans := P2; Code := k2 v |}
-                             :: ps'')) (procsD ps2))
-    -> refines (procsD ps1) (procsD ps2).
+       -> refines (procsD {| TopChans := TP1;
+                             Procs := {| Chans := P1; Code := k1 |}
+                                        :: {| Chans := P2; Code := k2 v |}
+                                        :: ps'' |})
+                  (procsD {| TopChans := TP2; Procs := ps2 |}))
+    -> refines (procsD {| TopChans := TP1; Procs := ps1 |})
+               (procsD {| TopChans := TP2; Procs := ps2 |}).
   Proof.
     intros; eapply oneStep'; eauto; intros.
 
     apply Permutation_pick1 in H2; firstorder.
-    specialize (H P1 _ v k1 _ _ H4); firstorder.
+    specialize (H P1 _ v k1 _ _ H5); firstorder.
     repeat esplit.
     eauto using pick1_Permutation.
+    eauto.
     eauto.
     do 2 intro.
-    apply H6.
-    inv H7; eauto.
+    apply H8.
+    inv H9; eauto.
+    inv H12; eauto.
+    econstructor.
     econstructor.
     eauto.
-    eapply Permutation_traceOf.
+    eapply Permutation_traceOf'.
     eassumption.
     eauto.
     auto.
+    eauto.
 
     apply Permutation_pick1 in H2; firstorder.
-    specialize (H0 _ _ _ _ H4); firstorder.
+    specialize (H0 _ _ _ _ H5); firstorder.
     repeat esplit.
     eauto using pick1_Permutation.
     eauto.
+    eauto.
     do 3 intro.
-    apply H6.
-    inv H7; eauto.
+    apply H8.
+    inv H9; eauto.
+    inv H12; eauto.
+    econstructor.
     econstructor.
     eauto.
-    eapply Permutation_traceOf.
+    eapply Permutation_traceOf'.
     eassumption.
     eauto.
     auto.
+    eauto.
 
     apply Permutation_pick1 in H2.
     destruct H2; intuition.
@@ -929,13 +1076,30 @@ Section Refinement.
     do 2 intro.
     apply H1.
     inv H2; eauto.
+    inv H10; eauto.
     inv H11; eauto.
     econstructor.
     eauto.
     econstructor.
     eauto.
-    eapply Permutation_traceOf.
+    econstructor.
+    eauto.
+    eapply Permutation_traceOf'.
     eassumption.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    apply interleave_nil2 in H14; subst.
+    econstructor.
+    simpl.
+    econstructor.
+    eauto.
+    econstructor.
+    eauto.
+    eapply Permutation_traceOf'.
+    eassumption.
+    eauto.
     eauto.
     eauto.
     eauto.
