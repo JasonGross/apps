@@ -1,4 +1,4 @@
-MODULES    := Process Refinement Examples
+MODULES    := Process Refinement ModelCheck Examples
 VS         := $(MODULES:%=%.v)
 
 .PHONY: coq clean
