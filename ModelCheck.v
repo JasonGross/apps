@@ -116,3 +116,8 @@ Ltac picker0 := cbv beta; simpl;
 
 Ltac refines := eapply refines_normalize; [ normalize | normalize | picker0 || (oneStep; try picker) ];
                 simper.
+
+Ltac mc := repeat match goal with
+                    | [ |- context[if ?b then _ else _] ] => destruct b
+                    | _ => refines
+                  end.

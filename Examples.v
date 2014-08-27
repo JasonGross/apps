@@ -8,7 +8,7 @@ Module Done.
 
   Theorem pr_pr : refines pr pr.
   Proof.
-    refines.
+    mc.
   Qed.
 End Done.
 
@@ -21,7 +21,7 @@ Module DoneSend.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
+    mc.
   Qed.
 End DoneSend.
 
@@ -32,8 +32,7 @@ Module Send.
 
   Theorem pr_pr : refines pr pr.
   Proof.
-    refines.
-    refines.
+    mc.
   Qed.
 End Send.
 
@@ -44,8 +43,7 @@ Module Recv.
 
   Theorem pr_pr : refines pr pr.
   Proof.
-    refines.
-    refines.
+    mc.
   Qed.
 End Recv.
 
@@ -56,9 +54,7 @@ Module RecvSend.
 
   Theorem pr_pr : refines pr pr.
   Proof.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End RecvSend.
 
@@ -71,9 +67,7 @@ Module ComputeRhs.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End ComputeRhs.
 
@@ -86,11 +80,7 @@ Module SwapSend.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End SwapSend.
 
@@ -103,15 +93,7 @@ Module SwapSendRecv.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End SwapSendRecv.
 
@@ -126,9 +108,7 @@ Module WithSelf.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End WithSelf.
 
@@ -146,11 +126,7 @@ Module WithMoreSelf.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End WithMoreSelf.
 
@@ -166,14 +142,7 @@ Module DependentTypingAhoy.
 
   Theorem pr1_pr2 : refines pr1 pr2.
   Proof.
-    refines.
-    destruct v.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End DependentTypingAhoy.
 
@@ -184,8 +153,6 @@ Module RecvSendRestr.
 
   Theorem pr_pr : refines pr pr.
   Proof.
-    refines.
-    refines.
-    refines.
+    mc.
   Qed.
 End RecvSendRestr.

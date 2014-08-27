@@ -13,9 +13,7 @@ Module SendOnlyOnOut.
 
   Theorem conforms : exists pr, refines impl (policy pr).
   Proof.
-    exists impl.
-    refines.
-    refines.
+    exists impl; mc.
   Qed.
 End SendOnlyOnOut.
 
@@ -29,10 +27,7 @@ Module SendLe5.
 
   Theorem conforms : exists pr, refines impl (policy pr).
   Proof.
-    exists (#!chs["tmp", 4], Done).
-    refines.
-    refines.
-    refines.
+    exists (#!chs["tmp", 4], Done); mc.
   Qed.
 End SendLe5.
 
@@ -46,11 +41,6 @@ Module OnlySum.
 
   Theorem conforms : exists pr, refines impl (policy pr).
   Proof.
-    exists (#?chs["tmp", sum], #!chs["out", 3 + sum], Done).
-    refines.
-    refines.
-    refines.
-    refines.
-    refines.
+    exists (#?chs["tmp", sum], #!chs["out", 3 + sum], Done); mc.
   Qed.
 End OnlySum.
