@@ -293,6 +293,28 @@ Section Refinement.
     apply procsD_app2'.
   Qed.
 
+  Lemma normProc0D : forall p, norm (proc0D p) {| TopChans := fun _ => True;
+                                                  Procs := {| Chans := fun _ => True;
+                                                              Code := p |} :: nil |}.
+  Proof.
+    unfold norm, refines; simpl; intuition.
+    econstructor; eauto; simpl.
+    econstructor.
+    econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+
+    inv H; eauto.
+    inv H2; eauto.
+    inv H1; eauto.
+    inv H3.
+    apply interleave_nil2 in H6; subst; eauto.
+    apply interleave_nil1 in H6; subst; eauto.
+    inv H3; eauto.
+  Qed.
+
   Lemma normProcD : forall p, norm (procD p) {| TopChans := fun _ => True; Procs := p :: nil |}.
   Proof.
     unfold norm, refines; simpl; intuition.
@@ -1103,6 +1125,72 @@ Section Refinement.
     eauto.
     eauto.
     eauto.
+  Qed.
+
+
+  (** * Filtering out inert processes *)
+
+  Inductive filterInert : process chs -> process chs -> Prop :=
+  | FiParallel : forall p1 ps1 p2 ps2, filterInert p1 ps1
+    -> filterInert p2 ps2
+    -> filterInert (p1 || p2) (match ps1 with
+                               | Done => ps2
+                               | _ => match ps2 with
+                                      | Done => ps1
+                                      | _ => ps1 || ps2
+                                      end
+                               end)
+  | FiRestrictTrue : forall p ps, filterInert p ps
+    -> filterInert (Restrict (fun _ => True) p) ps
+  | FiRestrict : forall P p ps, filterInert p ps
+    -> filterInert (Restrict P p) (Restrict P ps)
+  | FiOther : forall p, filterInert p p.
+
+  Theorem filterInert_fwd : forall p ps, filterInert p ps
+    -> forall tr, traceOf p tr
+      -> traceOf ps tr.
+  Proof.
+    induction 1; intuition eauto.
+
+    inv H1; eauto.
+    destruct ps1, ps2; eauto;
+      match goal with
+      | [ H : forall tr : trace chs, _, H' : _ |- _ ] => apply H in H'; inv H';
+                                                         match goal with
+                                                         | [ H : _ |- _ ] =>
+                                                           (apply interleave_nil1 in H
+                                                            || apply interleave_nil2 in H);
+                                                             subst; solve [ eauto ]
+                                                         end
+      end.
+
+    inv H0; eauto.
+
+    inv H0; eauto.
+  Qed.
+
+  Theorem filterInert_bwd : forall p ps, filterInert p ps
+    -> forall tr, traceOf ps tr
+      -> traceOf p tr.
+  Proof.
+    induction 1; intuition eauto.
+
+    destruct ps1, ps2; inv H1; eauto;
+    match goal with
+    | [ H : forall tr : trace chs, _ |- _ ] =>
+      solve [ econstructor; try (apply H; econstructor; eauto); eauto ]
+    end.
+
+    inv H0; eauto.
+  Qed.
+
+  Theorem refines_filterInert : forall p1 p2 ps1 ps2,
+    filterInert p1 ps1
+    -> filterInert p2 ps2
+    -> refines ps1 ps2
+    -> refines p1 p2.
+  Proof.
+    unfold refines; eauto using filterInert_fwd, filterInert_bwd.
   Qed.
 
 End Refinement.

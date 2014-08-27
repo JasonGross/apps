@@ -18,7 +18,8 @@ Ltac normBasic E :=
   let E' := normBasic' (fun _ : unit => E) in
     eval simpl in (E' tt).
 
-Ltac normalize := solve [ repeat (solve [ apply normProcD | eapply normBasic;
+Ltac normalize := solve [ repeat (solve [ apply normProcD | apply normProc0D
+                                        | eapply normBasic;
                                                             match goal with
                                                             | [ |- normalize _ ?E ?F ] =>
                                                               let E' := normBasic E in
@@ -87,11 +88,15 @@ Ltac picker :=
     picker' ls idtac ltac:(fun tac => do 4 esplit; [ tac | split; [ simpl; tauto | intros ] ])
   end.
 
+Ltac filter := eapply refines_filterInert; [ solve [ repeat constructor ]
+                                           | solve [ repeat constructor ]
+                                           | cbv beta; simpl ].
+
 Ltac simper := intuition;
   repeat match goal with
          | [ H : True |- _ ] => clear H
          | [ H : ?X = ?X |- _ ] => clear H
-         end; unfold procsD; simpl; try discriminate.
+         end; unfold procsD; simpl; try discriminate; try filter.
 
 Ltac refines := eapply refines_normalize; [ normalize | normalize | oneStep; try picker ];
                 simper.
