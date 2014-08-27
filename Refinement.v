@@ -335,6 +335,42 @@ Section Refinement.
     apply interleave_nil2 in H6; subst; eauto.
   Qed.
 
+  Lemma normShift : forall p p' P, norm p {| TopChans := P; Procs := {| Chans := fun _ => True; Code := p' |} :: nil |}
+    -> norm p {| TopChans := fun _ => True; Procs := {| Chans := P; Code := p' |} :: nil |}.
+  Proof.
+    unfold norm, refines; simpl; intuition.
+
+    apply H0 in H.
+    inv H; eauto.
+    inv H4; eauto.
+    inv H5.
+    apply interleave_nil2 in H8; subst.
+    inv H3; eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+
+    apply H1.
+    inv H; eauto.
+    inv H4; eauto.
+    inv H5.
+    apply interleave_nil2 in H8; subst.
+    inv H3; eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+  Qed.
+
   Theorem normParallel : forall p1 ps1 p2 ps2, norm p1 {| TopChans := fun _ => True; Procs := ps1 |}
     -> norm p2 {| TopChans := fun _ => True; Procs := ps2 |}
     -> norm (Parallel p1 p2) {| TopChans := fun _ => True; Procs := ps1 ++ ps2 |}.
@@ -1200,6 +1236,143 @@ Section Refinement.
     -> refines p1 p2.
   Proof.
     unfold refines; eauto using filterInert_fwd, filterInert_bwd.
+  Qed.
+
+
+  (** * Running internal computation steps on the RHS of [refines] *)
+
+  Theorem compute_rhs : forall p TP ps ch v k1 k2 P1 P2 ps' ps'',
+    pick1 ps {| Chans := P1; Code := NSend ch v k1 |} ps'
+    -> pick1 ps' {| Chans := P2; Code := NRecv ch k2 |} ps''
+    -> P1 (Send, ch)
+    -> P2 (Recv, ch)
+    -> refines p (procsD {| TopChans := TP; Procs := {| Chans := P1; Code := k1 |}
+                                                       :: {| Chans := P2; Code := k2 v |}
+                                                       :: ps'' |})
+    -> refines p (procsD {| TopChans := TP; Procs := ps |}).
+  Proof.
+    unfold refines; intros.
+    apply H3 in H4; clear H3.
+    inv H4; eauto.
+    inv H6; eauto.
+    inv H5; eauto.
+    inv H7; eauto.
+    inv H5; eauto.
+
+    econstructor; simpl; auto.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H.
+    eapply Permutation_sym; eassumption.
+    simpl.
+    eapply Parallel_cong; [ apply refines_refl | | ].
+    do 2 intro.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H0.
+    eapply Permutation_sym; eassumption.
+    eassumption.
+    simpl.
+    apply Parallel_assoc2.
+    destruct (interleave_reassoc1 _ _ _ H10 _ _ H13); intuition.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+
+    apply interleave_nil1 in H13; subst.
+    econstructor; simpl; auto.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H.
+    eapply Permutation_sym; eassumption.
+    simpl.
+    eapply Parallel_cong; [ apply refines_refl | | ].
+    do 2 intro.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H0.
+    eapply Permutation_sym; eassumption.
+    eassumption.
+    simpl.
+    apply Parallel_assoc2.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+
+    apply interleave_nil2 in H10; subst.
+    econstructor; simpl; auto.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H.
+    eapply Permutation_sym; eassumption.
+    simpl.
+    eapply Parallel_cong; [ apply refines_refl | | ].
+    do 2 intro.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H0.
+    eapply Permutation_sym; eassumption.
+    eassumption.
+    simpl.
+    apply Parallel_assoc2.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
+
+    apply interleave_nil1 in H10; subst.
+    econstructor; simpl; auto.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H.
+    eapply Permutation_sym; eassumption.
+    simpl.
+    eapply Parallel_cong; [ apply refines_refl | | ].
+    do 2 intro.
+    eapply Permutation_traceOf'.
+    eapply pick1_Permutation in H0.
+    eapply Permutation_sym; eassumption.
+    eassumption.
+    simpl.
+    apply Parallel_assoc2.
+    inv H7; eauto.
+    inv H5; eauto.
+    econstructor.
+    econstructor.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor.
+    apply TrDone.
+    eauto.
+    econstructor.
+    rewrite expand_proc0D; simpl.
+    econstructor; eauto.
+    eauto.
+    eauto.
+    eauto.
+    eauto.
   Qed.
 
 End Refinement.

@@ -62,6 +62,21 @@ Module RecvSend.
   Qed.
 End RecvSend.
 
+Module ComputeRhs.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr1 : process chs := #!chs["X", 0], Done.
+
+  Definition pr2 : process chs := (#?chs["Y", v], #!chs["X", v], Done) || (#!chs["Y", 0], Done).
+
+  Theorem pr1_pr2 : refines pr1 pr2.
+  Proof.
+    refines.
+    refines.
+    refines.
+  Qed.
+End ComputeRhs.
+
 Module SwapSend.
   Definition chs : channels := fun _ => nat.
 

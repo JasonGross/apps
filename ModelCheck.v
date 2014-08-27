@@ -32,7 +32,7 @@ Ltac normalize := solve [ repeat (solve [ apply normProcD | apply normProc0D
                                         | eapply normBasic;
                                           normBasic; repeat (constructor; intros) ]
                        || eapply normParallel || eapply normRestrictTrivial
-                       || eapply normRestrictMany) ].
+                       || eapply normRestrictMany || (apply normShift; apply normRestrictMany)) ].
 
 Ltac inverter H := let H' := fresh "H'" in
                    generalize H; intro H'; apply (f_equal (@Chans _)) in H'; simpl in H'; subst;
@@ -103,5 +103,16 @@ Ltac simper := intuition;
          | [ H : (?X, ?Y) = (?X, ?Y) |- _ ] => clear H
          end; unfold procsD; simpl; try discriminate; try filter.
 
-Ltac refines := eapply refines_normalize; [ normalize | normalize | oneStep; try picker ];
+Ltac picker0 := cbv beta; simpl;
+  match goal with
+    | [ |- refines (procsD _ _) (procsD _ {| TopChans := _; Procs := ?ls |}) ] =>
+      picker' ls idtac ltac:(fun tac => eapply compute_rhs; [ tac |
+        match goal with
+          | [ |- pick1 ?ls _ _ ] =>
+            picker' ls idtac ltac:(fun tac => tac)
+        end
+        | solve [ cbv beta; tauto ] | solve [ cbv beta; tauto ] | ])
+  end.
+
+Ltac refines := eapply refines_normalize; [ normalize | normalize | picker0 || (oneStep; try picker) ];
                 simper.
