@@ -54,12 +54,15 @@ Section Refinement.
     refines p (procsD ps)
     /\ refines (procsD ps) p.
 
-  CoInductive normalize : process chs -> proc0 -> Prop :=
+  Inductive normalize : process chs -> proc0 -> Prop :=
   | InSend : forall ch v k k', normalize k k'
     -> normalize (DoSend ch v k) (NSend ch v k')
   | InRecv : forall ch k k', (forall v, normalize (k v) (k' v))
     -> normalize (DoRecv ch k) (NRecv ch k')
-  | InDone : normalize Done NDone.
+  | InDone : normalize Done NDone
+  | InIf : forall (b : bool) k1 k1' k2 k2', normalize k1 k1'
+    -> normalize k2 k2'
+    -> normalize (if b then k1 else k2) (if b then k1' else k2').
 
   Lemma expand_proc0D : forall p, proc0D p = expand (proc0D p).
   Proof.
@@ -68,28 +71,34 @@ Section Refinement.
     auto.
   Qed.
 
-  Lemma normalize_fwd : forall p tr, traceOf p tr
-    -> forall p', normalize p p'
+  Lemma normalize_fwd : forall p p', normalize p p'
+    -> forall tr, traceOf p tr
       -> traceOf (proc0D p') tr.
   Proof.
-    induction 1; simpl; eauto; inversion 1; subst.
+    induction 1; simpl; eauto; inversion 1; subst; eauto.
     apply (inj_pair2_eq_dec _ string_dec) in H3; subst.
-    rewrite expand_proc0D in *; simpl in *.
-    eauto.
-    apply (inj_pair2_eq_dec _ string_dec) in H3; subst.
-    rewrite expand_proc0D in *; simpl in *.
-    eauto.
+    rewrite expand_proc0D; simpl; eauto.
+    apply (inj_pair2_eq_dec _ string_dec) in H4; subst.
+    inv H1; eauto.
+    rewrite expand_proc0D; simpl; eauto.
+    destruct b; subst; eauto.
+    destruct b; subst; eauto.
+    destruct b; subst; eauto.
+    destruct b; subst; eauto.
   Qed.
 
-  Lemma normalize_bwd : forall p'0 tr, traceOf p'0 tr
-    -> forall p p', normalize p p'
-      -> p'0 = proc0D p'
+  Lemma normalize_bwd : forall p p', normalize p p'
+    -> forall tr, traceOf (proc0D p') tr
       -> traceOf p tr.
   Proof.
-    induction 1; simpl; eauto; destruct 1; simpl; intros;
+    induction 1; simpl; eauto; inversion 1; simpl; intros; eauto;
     try match goal with
         | [ H : _ = proc0D _ |- _ ] => rewrite expand_proc0D in H; simpl in H; inv H; eauto
         end.
+    destruct b; eauto.
+    destruct b; eauto.
+    destruct b; eauto.
+    destruct b; eauto.
   Qed.
 
   Lemma traceAll_True : forall p, traceAll (chs := chs) (fun _ => True) p.

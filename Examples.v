@@ -11,21 +11,26 @@ Ltac normBasic' E :=
   | fun x : ?A => @DoRecv ?chs ?ch (@?k x) =>
     let E' := normBasic' (fun p : A * _ => k (fst p) (snd p))
       in constr:(fun x : A => @NRecv chs ch (fun y => E' (x, y)))
+  | fun x : ?A => if @?test x then @?case1 x else @?case2 x =>
+    let E1 := normBasic' case1 in
+    let E2 := normBasic' case2 in
+      constr:(fun x : A => if test x then E1 x else E2 x)
   end.
 
-Ltac normBasic E :=
+Ltac normBasic0 E :=
   let E := eval hnf in E in
   let E' := normBasic' (fun _ : unit => E) in
     eval simpl in (E' tt).
 
+Ltac normBasic :=
+  match goal with
+  | [ |- normalize _ ?E ?F ] =>
+    let E' := normBasic0 E in unify F E'
+  end.
+
 Ltac normalize := solve [ repeat (solve [ apply normProcD | apply normProc0D
                                         | eapply normBasic;
-                                                            match goal with
-                                                            | [ |- normalize _ ?E ?F ] =>
-                                                              let E' := normBasic E in
-                                                              unify F E';
-                                                                repeat (constructor; intros)
-                                                            end ]
+                                          normBasic; repeat (constructor; intros) ]
                        || eapply normParallel || eapply normRestrictTrivial
                        || eapply normRestrictMany) ].
 
@@ -95,7 +100,7 @@ Ltac filter := eapply refines_filterInert; [ solve [ repeat constructor ]
 Ltac simper := intuition;
   repeat match goal with
          | [ H : True |- _ ] => clear H
-         | [ H : ?X = ?X |- _ ] => clear H
+         | [ H : (?X, ?Y) = (?X, ?Y) |- _ ] => clear H
          end; unfold procsD; simpl; try discriminate; try filter.
 
 Ltac refines := eapply refines_normalize; [ normalize | normalize | oneStep; try picker ];
@@ -216,3 +221,48 @@ Module WithSelf.
     refines.
   Qed.
 End WithSelf.
+
+Module WithMoreSelf.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr1 : process chs := ##[(Send, "X")],
+    (#?chs["Y", x], #!chs["X", S x], Done)
+    || (#!chs["Y", 0], Done)
+    || (#!chs["Y", 1], Done).
+
+  Definition pr2 : process chs :=
+    (#!chs["X", 2], Done)
+    || (#!chs["X", 1], Done).
+
+  Theorem pr1_pr2 : refines pr1 pr2.
+  Proof.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+  Qed.
+End WithMoreSelf.
+
+Module DependentTypingAhoy.
+  Definition chs : channels := fun s => if string_dec s "B" then bool else nat.
+
+  Definition pr1 : process chs := ##[(Recv, "B"), (Send, "X")],
+    (#?chs["B", b], #?chs["N", n], if b then #!chs["X", 42], Done else #!chs["X", n], Done)
+    || (#!chs["N", 13], Done).
+
+  Definition pr2 : process chs :=
+    #?chs["B", b], if b then #!chs["X", 42], Done else #!chs["X", 13], Done.
+
+  Theorem pr1_pr2 : refines pr1 pr2.
+  Proof.
+    refines.
+    destruct v.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+    refines.
+  Qed.
+End DependentTypingAhoy.
