@@ -266,3 +266,16 @@ Module DependentTypingAhoy.
     refines.
   Qed.
 End DependentTypingAhoy.
+
+Module RecvSendRestr.
+  Definition chs : channels := fun _ => nat.
+
+  Definition pr : process chs := ##[(Recv, "X"), (Send, "Y")], #?chs["X", x], #!chs["Y", x], Done.
+
+  Theorem pr_pr : refines pr pr.
+  Proof.
+    refines.
+    refines.
+    refines.
+  Qed.
+End RecvSendRestr.
