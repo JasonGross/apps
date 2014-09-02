@@ -44,3 +44,19 @@ Module OnlySum.
     exists (#?chs["tmp", sum], #!chs["out", 3 + sum], Done); mc.
   Qed.
 End OnlySum.
+
+(* A counter example where refinement doesn't preserve noninterference *)
+Module Bad.
+  Definition chs : channels := fun _ => bool.
+
+  Definition random_out : process chs := (#!chs["tmp", true], Done) || (#!chs["tmp", false], Done) || (#?chs["tmp", b], #!chs["out", b], Done) || (#?chs["tmp", b], Done).
+
+  Definition policy : process chs := ##[(Recv, "in"), (Send, "out")], (#?chs["in", b], Done) || random_out.
+
+  Definition impl : process chs := #?chs["in", b], #!chs["out", b], Done.
+
+  Theorem conforms : refines impl policy.
+  Proof.
+    admit.
+  Qed.
+End Bad.
