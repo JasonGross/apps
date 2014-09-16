@@ -46,7 +46,7 @@ Section okld.
   Variable make_dispatcher : list (string * channel) -> Dispatcher.
 
   (* A helper *)
-  Definition start_svc (svc : Service) ch := #?[ch, reqpath], #?[ch, sock], svc reqpath sock.
+  Definition start_svc (svc : Service) ch := #*, #?[ch, reqpath], #?[ch, sock], svc reqpath sock.
 
   (* An example launcher for a fixed number of services *)
   Definition okld3 ptrn1 svc1 ptrn2 svc2 ptrn3 svc3 :=
