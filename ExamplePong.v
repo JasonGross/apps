@@ -59,4 +59,10 @@ Definition handler (st : State) (e : Event) : State * Output :=
       end in
   (st', draw st').
 
-CoFixpoint game st := #?["events", e], let (st', out) := handler st e in #!["screen", out], game st'.
+CoFixpoint game' st := #?["events", e], let (st', out) := handler st e in #!["screen", out], game' st'.
+
+Definition game := game' 
+                     {| ballPos := (0,0); 
+                        ballHDir := Right;
+                        ballVDir := Down;
+                        paddlePos := 0 |}.
