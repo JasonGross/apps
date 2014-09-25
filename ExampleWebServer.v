@@ -1,24 +1,6 @@
 Set Implicit Arguments.
-Require Import Arith Process Refinement ModelCheck.
-
-(* Pi-calculus *)
-CoInductive process :=
-| DoSend (ch : channel) T (v : T) (k : process)
-| DoRecv (ch : channel) T (k : T -> process)
-| Parallel (pr1 pr2 : process)
-| CreateChannel (k : channel -> process)
-| RepeatedSpawn (pr : process)
-| Restrict (which : direction * channel -> Prop) (k : process)
-| Done.
-
-Require Import String List.
-Notation "#! [ ch , v ] , k" := (DoSend ch v k) (at level 100).
-Notation "#? [ ch , x ] , k" := (DoRecv ch (fun x => k)) (at level 100).
-Notation "## [ x1 , .. , xN ] , k" := (Restrict (fun p => In p (cons x1 (.. (cons xN nil) ..))) k) (at level 100).
-Infix "||" := Parallel.
-Notation "#*, p" := (RepeatedSpawn p) (at level 100).
-Notation "#@ ch , k" := (CreateChannel (fun ch => k)) (at level 100).
-Import ListNotations.
+Require Import Process.
+Require Import PiCalculus.
 
 (* An example adapted from OKWS, a web server with privilege separation 
    Reference paper: 
@@ -48,6 +30,9 @@ Section okld.
   (* A helper *)
   Definition start_svc (svc : Service) ch := #*, #?[ch, reqpath], #?[ch, sock], svc reqpath sock.
 
+  Require Import List.
+  Import ListNotations.
+
   (* An example launcher for a fixed number of services *)
   Definition okld3 ptrn1 svc1 ptrn2 svc2 ptrn3 svc3 :=
     #@ch1, #@ch2, #@ch3,
@@ -56,14 +41,6 @@ Section okld.
     start_svc svc1 ch1 ||
     start_svc svc2 ch2 ||
     start_svc svc3 ch3.
-
-  Fixpoint CreateChannels n (f : list channel -> process) : process :=
-    match n with
-      | 0 => f []
-      | S n'=> CreateChannels n' (fun chs => #@ch, f (ch :: chs))
-    end.
-
-  Notation "#@* [ n , chs ] , k" := (CreateChannels n (fun chs => k)) (at level 100).
 
   Definition fold_left2 A B C (f : A -> B -> C -> A) ls1 ls2 a := fold_left (fun a x => f a (fst x) (snd x)) (combine ls1 ls2) a.
 

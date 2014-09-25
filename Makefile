@@ -1,4 +1,4 @@
-MODULES    := Process Refinement ModelCheck Examples SecurityExamples
+MODULES    := Process Refinement ModelCheck Examples SecurityExamples PiCalculus
 VS         := $(MODULES:%=%.v)
 
 .PHONY: coq clean
