@@ -5,19 +5,23 @@ let rec loop proc =
   | P.Step f ->
       match (Str.bounded_split (Str.regexp " ") (read_line ()) 2) with
       | ">" :: s :: nil ->
-          loop' (f (P.UiConsoleIn (ExtString.String.explode s)))
-      | "decrypted" :: s :: nil ->
+          loop' (f (P.PwMgrConsoleIn (ExtString.String.explode s)))
+      | "received" :: s :: nil ->
           Scanf.sscanf s "%S" (fun data ->
-            loop' (f (P.UiDecrypted (ExtString.String.explode data))))
+            loop' (f (P.PwMgrReceived (ExtString.String.explode data))))
       | _ ->
           prerr_endline "unrecognized input";
           loop proc
-and loop' (outs, proc) =
-  List.iter
-    (fun o -> match o with
-    | P.UiConsoleOut s -> print_endline ("< " ^ ExtString.String.implode s)
-    | P.UiEncrypt s -> Printf.printf "encrypt %S\n%!" (ExtString.String.implode s))
-    outs;
+and loop' (out, proc) =
+  out ();
   loop proc;;
 
-loop P.ui;;
+let pwMgrConsoleOut s () =
+  print_endline ("< " ^ ExtString.String.implode s);;
+
+let pwMgrSend s () =
+  Printf.printf "send %S\n%!" (ExtString.String.implode s);;
+
+let proc = P.pwMgr pwMgrConsoleOut pwMgrSend;;
+
+loop proc
