@@ -153,11 +153,15 @@ Section pwMgr.
 
   Definition pwMgrStack := mkPwMgrStack ui net.
 
-  Theorem pwMgrGood : emptiesStackForever pwMgrStack.
+  Theorem pwMgrGood pws :
+    emptiesStackForever
+      (mkPwMgrStack
+         (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)
+         net).
     admit.
   Qed.
 
-  Definition pwMgr := runStackProcess pwMgrStack pwMgrGood.
+  Definition pwMgr := runStackProcess pwMgrStack (pwMgrGood nil).
 
 End pwMgr.
 
