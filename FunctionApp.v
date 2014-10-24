@@ -95,7 +95,7 @@ Section stackProcess.
     }
     destruct (stepStackProcess (sw', p2) e3) as [a3 [p3 [e4 u4]]].
     split.
-    { exact (fun w => a3 (a2 w)). }
+    { exact (fun w => a2 (a3 w)). }
     {
       exists p3.
       split.
@@ -112,7 +112,7 @@ Section stackProcess.
     assert (stepStackProcessTerminates (sw', p)) as e1 by (inversion h; assumption).
     destruct (stepStackProcess (sw', p) e1) as [a2 [p2 [e2 u2]]].
     split.
-    { exact (fun w => a2 (a w)). }
+    { exact (fun w => a (a2 w)). }
     {
       exists p2.
       split.
