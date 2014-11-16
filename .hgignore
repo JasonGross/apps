@@ -5,6 +5,7 @@ syntax: glob
 
 *.depend
 Makefile.coq
+Makefile.coq.bak
 *.vo
 *.glob
 *.v.d
