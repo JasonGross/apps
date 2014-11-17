@@ -10,3 +10,6 @@ Makefile.coq.bak
 *.glob
 *.v.d
 .\#*
+.dir-locals.el
+*.ml
+*.mli
