@@ -1,3 +1,4 @@
+(** * Skeleton of app that asks for GPS and a list of MBTA busses, and displays the ones near you *)
 Require Import Coq.Strings.Ascii Coq.Program.Basics Coq.Strings.String.
 Require Import Coq.Lists.List Coq.Sorting.Mergesort.
 Require Import FunctionApp FunctionAppLemmas FunctionAppTactics.
@@ -12,6 +13,41 @@ Module Type GPSCoordinateType.
   Axiom toString : t -> string.
   Axiom initGPS : t.
 End GPSCoordinateType.
+
+(** We implement the following diagram:
+
+<<
+
+                        receive bus list      System Clock (tick)
+                              │                    │
+                              V                    V
+                      ┌────────────────────────────────────────────────────┐
+                      │       │                    ├──────┐                │
+                      │       V                    V      │                │
+    update busses     │    ┌────┐ want busses   ┌──────┐  │                │
+    --------------->  │ -> │    │ ------------> │ Bus  │  │ request busses │
+                      │    │    │               │ Tick │ ----------------> │ --> internet
+    update gps        │    │    │ <------------ │ Box  │  │                │
+    --------------->  │ -> │    │ ------------> │      │  │                │
+                      │    │    │               └──────┘  │                │
+                      │    │ UI │                  ┌──────┘                │
+    set max dist      │    │    │                  V                       │
+    --------------->  │ -> │    │ want GPS      ┌──────┐                   │
+                      │    │    │ ------------> │ GPS  │    request GPS    │
+    console out       │    │    │               │ Tick │ ----------------> │--> GPS
+    <---------------  │ <- │    │ <------------ │ Box  │                   │
+                      │    └────┘ ------------> │      │                   │
+                      │       ^                 └──────┘                   │
+                      │       │                                            │
+                      └────────────────────────────────────────────────────┘
+                              ^
+                              │
+                        receive GPS
+>>
+
+    We will eventually want to add knobs for setting the parameters of
+    the tick boxes.  The unlabeled double-way arrows are helpers for
+    the tick boxes.  *)
 
 Module MBTARequester (GPS : GPSCoordinateType).
   Local Notation GPSCoordinate := GPS.t.
@@ -91,7 +127,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
         dump ∘ getInterestingBusses.
 
 
-
+      (** Separate out the body, so that the proof at the end compiles faster. *)
       Definition uiLoopBody
                  (uiLoop : state -> process uiInput world)
                  (st : state)
@@ -259,6 +295,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                           (fun world handle => tickBox tt handle)
                                           (fun world handle => tickBox tt handle).
 
+      (** Not necessary for proof, but useful for looking at goals left over. *)
       Local Ltac prettify :=
         repeat match goal with
                  | [ |- appcontext[mbtaLoopBody _ (?uiLoop0 _) (?gpsLoop0 _) (?bussesLoop0 _)] ]
