@@ -105,10 +105,6 @@ Section pwMgr.
   Context (consoleOut : string -> action world).
   Context (send : string -> action world).
 
-  Inductive pwMgrMessage :=
-  | pwMgrEncrypt : string -> pwMgrMessage
-  | pwMgrDecrypt : string -> pwMgrMessage.
-
   Inductive pwMgrInput :=
   | pwMgrConsoleIn : string -> pwMgrInput
   | pwMgrReceived : string -> pwMgrInput.
