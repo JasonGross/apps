@@ -314,43 +314,22 @@ Module MBTARequester (GPS : GPSCoordinateType).
         emptiesStackForever_t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
         prettify.
         repeat match goal with
-                 | [ |- appcontext[if ?f ?x then _ else _] ]
+                 (*| [ |- appcontext[if ?f ?x then _ else _] ]
                    => let H := fresh in
-                      set (H := f x) in *
+                      set (H := f x) in * *)
                  | [ |- appcontext[match ?E with tt => _ end] ] => destruct E
                end.
-        (*Time repeat match goal with
-                      | [ H : bool |- _ ] => destruct H
-                    end;
-          t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop).
-        match goal with
-                 (*| [ H := ?a && ?b |- _ ]
-                   => let H1 := fresh in
-                      let H2 := fresh in
-                      set (H1 := a) in *;
-                        set (H2 := b) in *;
-                        subst H*)
-                 | [ H1 := ?a, H2 := ?a |- _ ] => change H2 with H1 in *; clear H2
-               end.
-        repeat match goal with
-                 | [ |- appcontext[if ?E then (fun x : ?T => @?a x) else (fun x : ?T => @?b x)] ]
-                   => let t := constr:(if E then (fun x => a x) else (fun x => b x)) in
-                      let t' := (eval cbv beta in t) in
-                      progress replace t' with (fun x => if E then a x else b x) by (destruct E; reflexivity);
-                        cbv beta
-                 | [ |- appcontext[match ?E with tt => _ end] ] => destruct E
-
-               end.
-        match goal with
-        Lemma if_assoc {T} (b1 b2 : bool) (a a' b : T)
-        : (if b1 then (if b2 then a else a') else b) = if (b1 && b2) then a else if b1 then a' else b.
-        Proof.
-          destruct b1, b2; reflexivity.
-        Defined.
-        repeat rewrite !(pull_if (stackLift _)), !(pull_if (stackPush _)).
-        rewrite !if_assoc.
-        repeat rewrite !(pull_if (stackLift _)), !(pull_if (stackPush _)).
-        progress repeat rewrite !(pull_if (stackLift _)), !(pull_if (stackPush _)).*)
+        Time (repeat match goal with
+                       | [ |- appcontext[if ?x then _ else _] ]
+                         => evar1_aware_destruct_bool x
+                     end;
+              emptiesStack_t mbtaLoop_eta (@mbtaLoop)).
+        Time repeat match goal with
+                      | _ => apply mbtaGood'
+                      | [ |- appcontext[if ?x then _ else _] ]
+                        => destruct x
+                    end.
+      Fail Timeout 5 Qed.
       Admitted.
 
       Lemma mbtaGood

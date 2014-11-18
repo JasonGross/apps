@@ -16,3 +16,7 @@ Ltac head expr :=
   end.
 
 Ltac head_hnf expr := let expr' := eval hnf in expr in head expr'.
+
+Ltac evar1_aware_destruct_bool x :=
+  instantiate (1 := if x then _ else _);
+  destruct x.

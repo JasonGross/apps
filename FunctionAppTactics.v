@@ -1,4 +1,6 @@
-Require Import FunctionApp.
+Require Import Coq.Program.Program.
+Require Import FunctionApp FunctionAppLemmas.
+Require Import Common.
 
 Ltac emptiesStack_t' loop_eta loop_pattern :=
   idtac;
