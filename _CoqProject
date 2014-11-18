@@ -10,3 +10,6 @@ PiCalculus2.v
 FunctionApp.v
 FunctionAppLemmas.v
 TrustedTickBox.v
+ExampleMBTARequester.v
+ExamplePwMgr.v
+ExamplePwMgr2.v
