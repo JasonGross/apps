@@ -1,4 +1,5 @@
 -R . Apps
+Common.v
 Process.v
 Refinement.v
 ModelCheck.v
@@ -7,4 +8,5 @@ SecurityExamples.v
 PiCalculus.v
 PiCalculus2.v
 FunctionApp.v
+FunctionAppLemmas.v
 TrustedTickBox.v

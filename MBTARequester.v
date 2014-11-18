@@ -1,6 +1,7 @@
-Require Import Coq.Strings.Ascii FunctionApp Coq.Program.Basics Coq.Strings.String.
+Require Import Coq.Strings.Ascii Coq.Program.Basics Coq.Strings.String.
 Require Import Coq.Lists.List Coq.Sorting.Mergesort.
-Require Import TrustedTickBox.
+Require Import FunctionApp FunctionAppLemmas.
+Require Import TrustedTickBox Common.
 Import ListNotations.
 
 Local Open Scope program_scope.
@@ -11,28 +12,6 @@ Module Type GPSCoordinateType.
   Axiom toString : t -> string.
   Axiom initGPS : t.
 End GPSCoordinateType.
-
-Definition stackProcess_eta message input world (p : stackProcess message input world)
-: p = match p with
-        | Step f => Step f
-      end.
-Proof.
-  destruct p; reflexivity.
-Qed.
-
-Definition process_eta input world (p : process input world)
-: p = match p with
-        | Step f => Step f
-      end.
-Proof.
-  destruct p; reflexivity.
-Qed.
-
-Lemma emptiesStackDone' message input world p q (H : p = q) : @emptiesStack message input world (stackDone, p) q.
-Proof.
-  subst.
-  constructor.
-Qed.
 
 Module MBTARequester (GPS : GPSCoordinateType).
   Local Notation GPSCoordinate := GPS.t.
@@ -280,31 +259,43 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                           (fun world handle => tickBox tt handle)
                                           (fun world handle => tickBox tt handle).
 
-
-      Local Ltac emptiesStack_t :=
+      Local Ltac emptiesStack_t loop_eta loop_pattern :=
         repeat match goal with
                  | [ |- emptiesStack (stackTransition _ _) _ ] => unfold stackTransition; simpl
                  | [ |- emptiesStack (stackPush _ _, _) _ ] => econstructor
                  | [ |- emptiesStack (stackLift _ _, _) _ ] => econstructor
                  | [ |- emptiesStack (stackDone, _) _ ] => constructor
-                 | [ |- emptiesStack (_, mbtaLoop _ _ _) _ ] => rewrite mbtaLoop_eta; simpl
-                 (*| [ |- emptiesStack (stackDone, ?p) ?q ] => apply emptiesStackDone'*)
+                 | [ |- emptiesStack (_, ?p) _ ]
+                   => let p' := head p in
+                      constr_eq p' loop_pattern;
+                        rewrite loop_eta; simpl
+                 | [ |- emptiesStack (stackDone, ?p) ?q ] => apply emptiesStackDone'
                  | _ => progress unfold id
                  | _ => progress unfold compose
-                 | [ |- ?p = ?e ?x ] => let T := type of x in is_evar e; unify e (fun _ : T => p); reflexivity
+                 (*| [ |- ?p = ?e ?x ] => let T := type of x in is_evar e; unify e (fun _ : T => p); reflexivity*)
+               end.
+
+      Local Ltac prettify :=
+        repeat match goal with
                  | [ |- appcontext[mbtaLoopBody _ (?uiLoop0 _) (?gpsLoop0 _) (?bussesLoop0 _)] ]
                    => progress (try change uiLoop0 with (@uiLoop _ uiHandler);
                                 try change gpsLoop0 with (@tickBoxLoop unit _ gpsHandler);
                                 try change bussesLoop0 with (@tickBoxLoop unit _ bussesHandler))
                end.
-      Local Ltac t mbtaGood' :=
+
+      Local Ltac t loopGood' inputT loop_eta loop_pattern :=
         repeat match goal with
                  | _ => progress simpl in *
                  | _ => intro
                  | [ |- _ /\ _ ] => split
-                 | [ H : mbtaInput |- _ ] => destruct H
-                 | [ |- emptiesStack _ _ ] => clear mbtaGood'; emptiesStack_t
-                 | [ |- emptiesStackForever (Step _) ] => apply mbtaGood'
+                 | [ H : inputT |- _ ] => destruct H
+                 | [ |- emptiesStack _ _ ] => clear loopGood'; emptiesStack_t loop_eta loop_pattern
+                 | [ |- sig _ ] => eexists
+                 | [ |- emptiesStackForever (Step _) ] => apply loopGood'
+                 | [ |- emptiesStackForever ?p ]
+                   => let p' := head p in
+                      constr_eq p' loop_pattern;
+                        rewrite loop_eta; simpl
                end.
 
       CoFixpoint mbtaGood' uiSt gpsSt bussesSt
@@ -313,7 +304,47 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                                 (tickBoxLoop gpsHandler gpsSt)
                                                 (tickBoxLoop bussesHandler bussesSt))).
       Proof.
-        econstructor; t mbtaGood'.
+        apply emptiesStackStep'.
+        t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
+        prettify.
+        repeat match goal with
+                 | [ |- appcontext[if ?f ?x then _ else _] ]
+                   => let H := fresh in
+                      set (H := f x) in *
+                 | [ |- appcontext[match ?E with tt => _ end] ] => destruct E
+               end.
+        (*Time repeat match goal with
+                      | [ H : bool |- _ ] => destruct H
+                    end;
+          t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop).
+        match goal with
+                 (*| [ H := ?a && ?b |- _ ]
+                   => let H1 := fresh in
+                      let H2 := fresh in
+                      set (H1 := a) in *;
+                        set (H2 := b) in *;
+                        subst H*)
+                 | [ H1 := ?a, H2 := ?a |- _ ] => change H2 with H1 in *; clear H2
+               end.
+        repeat match goal with
+                 | [ |- appcontext[if ?E then (fun x : ?T => @?a x) else (fun x : ?T => @?b x)] ]
+                   => let t := constr:(if E then (fun x => a x) else (fun x => b x)) in
+                      let t' := (eval cbv beta in t) in
+                      progress replace t' with (fun x => if E then a x else b x) by (destruct E; reflexivity);
+                        cbv beta
+                 | [ |- appcontext[match ?E with tt => _ end] ] => destruct E
+
+               end.
+        match goal with
+        Lemma if_assoc {T} (b1 b2 : bool) (a a' b : T)
+        : (if b1 then (if b2 then a else a') else b) = if (b1 && b2) then a else if b1 then a' else b.
+        Proof.
+          destruct b1, b2; reflexivity.
+        Defined.
+        repeat rewrite !(pull_if (stackLift _)), !(pull_if (stackPush _)).
+        rewrite !if_assoc.
+        repeat rewrite !(pull_if (stackLift _)), !(pull_if (stackPush _)).
+        progress repeat rewrite !(pull_if (stackLift _)), !(pull_if (stackPush _)).*)
       Admitted.
 
       Lemma mbtaGood

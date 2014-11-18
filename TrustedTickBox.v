@@ -313,8 +313,8 @@ for field0, ty0 in fields:
            | tbValueReady val
              => (id, tickBoxLoop (set_curData st val))
 
-           | tbTick extraTickCount
-             => let tickCount := st.(ticksSinceLastPublish) + extraTickCount in
+           | tbTick ticksSinceLastTick
+             => let tickCount := st.(ticksSinceLastPublish) + ticksSinceLastTick in
                 let st' := set_ticksSinceLastPublish st tickCount in
                 let actions := id in
                 let actions := (if shouldWarnInfrequentTicks st'
@@ -333,7 +333,7 @@ for field0, ty0 in fields:
                              useless.  Does [foo ∘ bar] mean "first
                              [bar], then [foo]" or "first [foo], then
                              [bar]"? *)
-                    actions ∘ handle tbRequestDataUpdate ∘ handle (tbPublishUpdate st.(curData))
+                    actions ∘ handle tbRequestDataUpdate ∘ handle (tbPublishUpdate st'.(curData))
                   else actions),
                  tb')
 
