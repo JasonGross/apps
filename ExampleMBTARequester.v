@@ -311,7 +311,12 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                                 (tickBoxLoop bussesHandler bussesSt))).
       Proof.
         apply emptiesStackStep'.
-        emptiesStackForever_t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
+        intros []; econstructor; split;
+        try (clear mbtaGood'; progress emptiesStack_t mbtaLoop_eta (@mbtaLoop)).
+        Guarded.
+        apply mbtaGood'.
+        Fail Guarded.
+        (*emptiesStackForever_t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
         prettify.
         repeat match goal with
                  (*| [ |- appcontext[if ?f ?x then _ else _] ]
@@ -329,7 +334,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
                       | [ |- appcontext[if ?x then _ else _] ]
                         => destruct x
                     end.
-      Fail Timeout 5 Qed.
+      Fail Timeout 5 Qed.*)
       Admitted.
 
       Lemma mbtaGood
