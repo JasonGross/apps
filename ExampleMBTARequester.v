@@ -1,6 +1,6 @@
 Require Import Coq.Strings.Ascii Coq.Program.Basics Coq.Strings.String.
 Require Import Coq.Lists.List Coq.Sorting.Mergesort.
-Require Import FunctionApp FunctionAppLemmas.
+Require Import FunctionApp FunctionAppLemmas FunctionAppTactics.
 Require Import TrustedTickBox Common.
 Import ListNotations.
 
@@ -259,43 +259,12 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                           (fun world handle => tickBox tt handle)
                                           (fun world handle => tickBox tt handle).
 
-      Local Ltac emptiesStack_t loop_eta loop_pattern :=
-        repeat match goal with
-                 | [ |- emptiesStack (stackTransition _ _) _ ] => unfold stackTransition; simpl
-                 | [ |- emptiesStack (stackPush _ _, _) _ ] => econstructor
-                 | [ |- emptiesStack (stackLift _ _, _) _ ] => econstructor
-                 | [ |- emptiesStack (stackDone, _) _ ] => constructor
-                 | [ |- emptiesStack (_, ?p) _ ]
-                   => let p' := head p in
-                      constr_eq p' loop_pattern;
-                        rewrite loop_eta; simpl
-                 | [ |- emptiesStack (stackDone, ?p) ?q ] => apply emptiesStackDone'
-                 | _ => progress unfold id
-                 | _ => progress unfold compose
-                 (*| [ |- ?p = ?e ?x ] => let T := type of x in is_evar e; unify e (fun _ : T => p); reflexivity*)
-               end.
-
       Local Ltac prettify :=
         repeat match goal with
                  | [ |- appcontext[mbtaLoopBody _ (?uiLoop0 _) (?gpsLoop0 _) (?bussesLoop0 _)] ]
                    => progress (try change uiLoop0 with (@uiLoop _ uiHandler);
                                 try change gpsLoop0 with (@tickBoxLoop unit _ gpsHandler);
                                 try change bussesLoop0 with (@tickBoxLoop unit _ bussesHandler))
-               end.
-
-      Local Ltac t loopGood' inputT loop_eta loop_pattern :=
-        repeat match goal with
-                 | _ => progress simpl in *
-                 | _ => intro
-                 | [ |- _ /\ _ ] => split
-                 | [ H : inputT |- _ ] => destruct H
-                 | [ |- emptiesStack _ _ ] => clear loopGood'; emptiesStack_t loop_eta loop_pattern
-                 | [ |- sig _ ] => eexists
-                 | [ |- emptiesStackForever (Step _) ] => apply loopGood'
-                 | [ |- emptiesStackForever ?p ]
-                   => let p' := head p in
-                      constr_eq p' loop_pattern;
-                        rewrite loop_eta; simpl
                end.
 
       CoFixpoint mbtaGood' uiSt gpsSt bussesSt
@@ -305,7 +274,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                                 (tickBoxLoop bussesHandler bussesSt))).
       Proof.
         apply emptiesStackStep'.
-        t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
+        emptiesStackForever_t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
         prettify.
         repeat match goal with
                  | [ |- appcontext[if ?f ?x then _ else _] ]

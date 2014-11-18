@@ -9,6 +9,7 @@ PiCalculus.v
 PiCalculus2.v
 FunctionApp.v
 FunctionAppLemmas.v
+FunctionAppTactics.v
 TrustedTickBox.v
 ExampleMBTARequester.v
 ExamplePwMgr.v
