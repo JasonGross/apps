@@ -179,6 +179,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
               (handle : mbtaOutput -> action world).
 
       Inductive mbtaMessage :=
+      | mbtaBadState
       | mbtaRequestGPS
       | mbtaRequestBusses
       | mbtaTbGPSRequestDataUpdate
@@ -207,6 +208,8 @@ Module MBTARequester (GPS : GPSCoordinateType).
       : sinput -> action sworld * process sinput sworld
         := (fun i =>
               match i with
+                | inl mbtaBadState =>
+                  (stackPush mbtaBadState, mbtaLoop ui tbGPS tbBusses)
                 | inl mbtaRequestGPS =>
                   let (a, tbGPS') := getStep tbGPS (tbNotifyChange unit) in
                   (a, mbtaLoop ui tbGPS' tbBusses)
@@ -258,6 +261,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
 
       Definition gpsHandler
         := (fun s => match s with
+                       | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
                        | tbRequestDataUpdate => stackPush mbtaRequestGPS
                        | tbPublishUpdate tt => stackLift (handle mbtaOutRequestGPSUpdate)
                        | tbWarnNoDataReady => stackLift id
@@ -266,6 +270,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
 
       Definition bussesHandler
         := (fun s => match s with
+                       | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
                        | tbRequestDataUpdate => stackPush mbtaRequestBusses
                        | tbPublishUpdate tt => stackLift (handle mbtaOutRequestBussesUpdate)
                        | tbWarnNoDataReady => stackLift id
@@ -292,8 +297,8 @@ Module MBTARequester (GPS : GPSCoordinateType).
           (tbBusses bussesHandler).
 
       Definition mbtaStack := mkMBTAStack ui
-                                          (fun world handle => tickBox tt handle)
-                                          (fun world handle => tickBox tt handle).
+                                          (fun world handle => tickBox handle)
+                                          (fun world handle => tickBox handle).
 
       (** Not necessary for proof, but useful for looking at goals left over. *)
       Local Ltac prettify :=
@@ -304,6 +309,24 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                 try change bussesLoop0 with (@tickBoxLoop unit _ bussesHandler))
                end.
 
+      Local Ltac mbtaGood'_t :=
+        repeat match goal with
+                 | _ => progress simpl
+                 | [ |- appcontext[match curData ?st with _ => _ end] ]
+                   => destruct st as [[]]; simpl
+                 | [ |- appcontext[match ?st with {| curData := _ |} => _ end] ]
+                   => destruct st as [[]]; simpl
+                 | [ H : unit |- _ ] => destruct H
+                 | _ => progress unfold set_curData; simpl
+                 | _ => progress emptiesStack_t mbtaLoop_eta (@mbtaLoop)
+                 | [ |- appcontext[if ?E then _ else _] ]
+                   => let T := type of E in
+                      constr_eq T bool;
+                        case_eq E; intro
+                 | _ => rewrite !mbtaLoop_eta
+               end;
+        prettify.
+
       CoFixpoint mbtaGood' uiSt gpsSt bussesSt
       : emptiesStackForever (Step (mbtaLoopBody mbtaLoop
                                                 (uiLoop (stackWorld mbtaMessage world) uiHandler uiSt)
@@ -311,30 +334,12 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                                 (tickBoxLoop bussesHandler bussesSt))).
       Proof.
         apply emptiesStackStep'.
-        intros []; econstructor; split;
-        try (clear mbtaGood'; progress emptiesStack_t mbtaLoop_eta (@mbtaLoop)).
+        intros [];
+          mbtaGood'_t(*;
+          try apply mbtaGood'*).
         Guarded.
         apply mbtaGood'.
         Fail Guarded.
-        (*emptiesStackForever_t mbtaGood' mbtaInput mbtaLoop_eta (@mbtaLoop);
-        prettify.
-        repeat match goal with
-                 (*| [ |- appcontext[if ?f ?x then _ else _] ]
-                   => let H := fresh in
-                      set (H := f x) in * *)
-                 | [ |- appcontext[match ?E with tt => _ end] ] => destruct E
-               end.
-        Time (repeat match goal with
-                       | [ |- appcontext[if ?x then _ else _] ]
-                         => evar1_aware_destruct_bool x
-                     end;
-              emptiesStack_t mbtaLoop_eta (@mbtaLoop)).
-        Time repeat match goal with
-                      | _ => apply mbtaGood'
-                      | [ |- appcontext[if ?x then _ else _] ]
-                        => destruct x
-                    end.
-      Fail Timeout 5 Qed.*)
       Admitted.
 
       Lemma mbtaGood
