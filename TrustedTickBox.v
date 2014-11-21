@@ -99,7 +99,7 @@ Set Implicit Arguments.
                                         ^                                   │
                                         |                                   │
                 +--------------------+  |                                   │
-                | Ready to transmit? |  |                                   │ Data Ready
+                | Ready to publish?  |  |                                   │ Data Ready
                 +--------------------+  |                                   │
              Yes |         |        ^   |                                   │
    Fire: Warning |      No |   Tick │   |                                   │
@@ -114,7 +114,7 @@ to 0                      ^             |                                   │ 
            Request Update |             |                                   V
                          +-----------------------+      No         +-------------------+
                          |                       | <-------------  |                   |
-                         | Enough Transmissions? |                 | Ticks too coarse? |
+                         |   Enough Publishes?   |                 | Ticks too coarse? |
                          |                       |      Yes        |                   |
                          +-----------------------+ <-------------  +-------------------+
                                                     Fire: Warning
