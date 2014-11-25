@@ -35,39 +35,49 @@ Section ui.
                        end)
              (split newline s).
 
+  Definition list_dec {A} (ls : list A) : { p | ls = fst p :: snd p } + { ls = nil }.
+    destruct ls.
+    - right; eauto.
+    - left.
+      exists (a, ls).
+      eauto.
+  Defined.
+
   CoFixpoint uiLoop (pws : list (string * string)) :=
     Step (fun i =>
-            match i with
 
+            match i with
               | uiConsoleIn s =>
                 match split " " s with
+                  | comm :: ls =>
+                    match string_dec comm "get", ls with
+                      | left _, account :: nil =>
+                        match
+                          find (fun p => if string_dec account (fst p)
+                                         then true else false) pws
+                        with
+                          | None =>
+                            (consoleOut "account not found", uiLoop pws)
+                          | Some (_, password) =>
+                            (consoleOut password, uiLoop pws)
+                        end
+                      | _, _ =>
+                        match string_dec comm "set", ls with
+                          | left _,  account :: password :: nil =>
+                            let pws' :=
+                                (account, password)
+                                  :: filter (fun p => if string_dec account (fst p)
+                                                      then false else true) pws
+                            in (encrypt (dump pws'), uiLoop pws')
 
-                  | "get"%string :: account :: nil =>
-                    match
-                      find (fun p => if string_dec account (fst p)
-                                     then true else false) pws
-                    with
-                      | None =>
-                        (consoleOut "account not found", uiLoop pws)
-                      | Some (_, password) =>
-                        (consoleOut password, uiLoop pws)
+                          | _, _ =>
+                            (consoleOut "unrecognized command", uiLoop pws)
+                        end
                     end
-
-                  | "set"%string :: account :: password :: nil =>
-                    let pws' :=
-                        (account, password)
-                          :: filter (fun p => if string_dec account (fst p)
-                                              then false else true) pws
-                    in (encrypt (dump pws'), uiLoop pws')
-
-                  | _ =>
-                    (consoleOut "unrecognized command", uiLoop pws)
-
+                  | _ => (consoleOut "unrecognized command", uiLoop pws)
                 end
-
               | uiDecrypted s =>
                 (id, uiLoop (load s))
-
             end).
 
   Definition ui := uiLoop nil.
@@ -100,6 +110,7 @@ Definition getStep {input output} (p : process input output) :=
     | Step f => f
   end.
 
+Local Open Scope type_scope.
 
 Section pwMgr.
 
@@ -115,50 +126,195 @@ Section pwMgr.
   | pwMgrConsoleIn : string -> pwMgrInput
   | pwMgrReceived : string -> pwMgrInput.
 
-  CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage pwMgrInput world :=
-    Step (fun i =>
-            match i with
-              | inl (pwMgrEncrypt s) =>
-                (* TODO: crypto *)
-                let (a, net') := getStep net (netEncrypted s) in (a, pwMgrLoop ui net')
-              | inl (pwMgrDecrypt s) =>
-                (* TODO: crypto *)
-                let (a, ui') := getStep ui (uiDecrypted s) in (a, pwMgrLoop ui' net)
-              | inr (pwMgrConsoleIn s) =>
-                let (a, ui') := getStep ui (uiConsoleIn s) in (a, pwMgrLoop ui' net)
-              | inr (pwMgrReceived s) =>
-                let (a, net') := getStep net (netReceived s) in (a, pwMgrLoop ui net')
-            end).
+  Definition pwMgrLoopBody pwMgrLoop ui net : @stackInput pwMgrMessage pwMgrInput -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage pwMgrInput world :=
+    fun i =>
+      match i with
+        | inl (pwMgrEncrypt s) =>
+          (* TODO: crypto *)
+          let (a, net') := getStep net (netEncrypted s) in (a, pwMgrLoop ui net')
+        | inl (pwMgrDecrypt s) =>
+          (* TODO: crypto *)
+          let (a, ui') := getStep ui (uiDecrypted s) in (a, pwMgrLoop ui' net)
+        | inr (pwMgrConsoleIn s) =>
+          let (a, ui') := getStep ui (uiConsoleIn s) in (a, pwMgrLoop ui' net)
+        | inr (pwMgrReceived s) =>
+          let (a, net') := getStep net (netReceived s) in (a, pwMgrLoop ui net')
+      end.
 
-  Definition
-    mkPwMgrStack
+  CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage pwMgrInput world :=
+    Step (pwMgrLoopBody pwMgrLoop ui net).
+
+  Definition 
+    wrap_ui
     (ui :
        forall {world'},
          (string -> action world') ->
          (string -> action world') ->
-         process uiInput world')
+         process uiInput world') :=
+    ui
+      (fun s => stackLift (consoleOut s))
+      (fun s => stackPush (pwMgrEncrypt s)).
+
+  Definition
+    wrap_net
     (net :
        forall {world'},
          (string -> action world') ->
          (string -> action world') ->
-         process netInput world') :
+         process netInput world') :=
+    net
+      (fun s => stackLift (send s))
+      (fun s => stackPush (pwMgrDecrypt s)).
+
+  Definition
+    mkPwMgrStack ui net :
     stackProcess pwMgrMessage pwMgrInput world :=
-    pwMgrLoop
-      (ui
-         (fun s => stackLift (consoleOut s))
-         (fun s => stackPush (pwMgrEncrypt s)))
-      (net
-         (fun s => stackLift (send s))
-         (fun s => stackPush (pwMgrDecrypt s))).
+    pwMgrLoop (wrap_ui ui) (wrap_net net).
 
   Definition pwMgrStack := mkPwMgrStack ui net.
+
+  Require Import FunctionAppLemmas.
+
+  Lemma pwMgrLoop_eta ui net 
+  : pwMgrLoop ui net = Step (pwMgrLoopBody pwMgrLoop ui net).
+  Proof.
+    rewrite stackProcess_eta at 1; reflexivity.
+  Qed.
+
+  CoInductive emptiesStackForever {message input world} : stackProcess message input world -> Prop :=
+  | emptiesStackStep pf:
+      (forall (i : input), exists p',
+         emptiesStack (stackTransition (inr i) pf) p' /\
+         emptiesStackForever p') ->
+      emptiesStackForever (Step pf).
+
+  CoFixpoint pwMgrGood' :
+    forall pws, emptiesStackForever
+      (pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net)).
+  Proof.
+    intros.
+    rewrite pwMgrLoop_eta.
+    econstructor.
+    intros.
+    unfold stackTransition; simpl.
+    destruct i; simpl.
+    destruct (split " " s); simpl.
+    eexists.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    destruct (string_dec s0 "get"); simpl.
+    destruct l; simpl.
+    destruct (string_dec s0 "set"); simpl.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    destruct l; simpl.
+    destruct (find (fun p => if string_dec s1 (fst p) then true else false) pws); simpl.
+    destruct p; simpl.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    destruct (string_dec s0 "set"); simpl.
+    destruct l; simpl.
+    rewrite pwMgrLoop_eta.
+    econstructor.
+    econstructor.
+    econstructor.
+    unfold stackTransition; simpl.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    destruct (string_dec s0 "set"); simpl.
+    destruct l; simpl.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    destruct l; simpl.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    destruct l; simpl.
+    rewrite pwMgrLoop_eta.
+    econstructor.
+    econstructor.
+    econstructor.
+    unfold stackTransition; simpl.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    econstructor.
+    econstructor.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+    rewrite pwMgrLoop_eta.
+    econstructor.
+    econstructor.
+    econstructor.
+    unfold stackTransition; simpl.
+    econstructor.
+    econstructor.
+    eapply pwMgrGood'.
+    Guarded.
+  Qed.
 
   Theorem pwMgrGood pws :
     emptiesStackForever
       (mkPwMgrStack
          (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)
          net).
-    admit.
+  Proof.
+    eapply pwMgrGood'.
   Qed.
 
   Definition pwMgr := runStackProcess pwMgrStack (pwMgrGood nil).
