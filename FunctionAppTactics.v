@@ -8,11 +8,15 @@ Ltac emptiesStack_t' loop_eta loop_pattern :=
   idtac;
   match goal with
     | _ => intro
-    | [ |- { p : _ & emptiesStack (stackTransition _ _) p * _ } ] => unfold stackTransition; simpl
-    | [ |- { p : _ & emptiesStack (stackPush _ _, Step _) p * _ } ] => apply emptiesStackPush_sigT
-    | [ |- { p : _ & emptiesStack (stackLift _ _, _) p * _ } ] => apply emptiesStackLift_sigT
-    | [ |- { p : _ & emptiesStack (stackDone, _) p * _ } ] => apply emptiesStackDone_sigT
-    | [ |- { q : _ & emptiesStack (_, ?p) q * _ } ]
+    | [ |- emptiesStack (stackTransition _ _) ?e ] => unfold stackTransition; simpl
+    | [ |- emptiesStack (stackPush _ _, Step _) ?e ] => eapply emptiesStackPush
+    | [ |- emptiesStack (stackLift _ _, _) ?e ] => apply emptiesStackLift
+    | [ |- emptiesStack (stackDone, _) ?e ] => apply emptiesStackDone
+    | [ |- emptiesStack (_, ?p) ?e ]
+      => let p' := head p in
+         constr_eq p' loop_pattern;
+           rewrite loop_eta; simpl
+    | [ |- emptiesStack _ ?p ]
       => let p' := head p in
          constr_eq p' loop_pattern;
            rewrite loop_eta; simpl
@@ -23,7 +27,7 @@ Ltac emptiesStack_t' loop_eta loop_pattern :=
 
 Ltac emptiesStack_t loop_eta loop_pattern := repeat emptiesStack_t' loop_eta loop_pattern.
 
-Ltac emptiesStackForever_t' loopGood' inputT loop_eta loop_pattern :=
+Ltac emptiesStackForever_t' loopGood' inputT loop_eta loop_pattern tac :=
   idtac;
   match goal with
     | _ => progress simpl in *
@@ -31,13 +35,17 @@ Ltac emptiesStackForever_t' loopGood' inputT loop_eta loop_pattern :=
     | [ |- _ /\ _ ] => split
     | [ |- _ * _ ] => split
     | [ H : inputT |- _ ] => destruct H
-    | [ |- { _ : _ & emptiesStack _ _ * _ } ] => clear loopGood'; emptiesStack_t loop_eta loop_pattern
-    | [ |- emptiesStackForever (Step _) ] => apply loopGood'
+    | _ => progress unfold stackTransition, compose
+    | _ => progress tac
+    | [ |- exists _, emptiesStack _ _ /\ _ ] => econstructor; split;
+                                                [ | solve [ eapply loopGood' ] ];
+                                                clear loopGood'; solve [ emptiesStack_t loop_eta loop_pattern ] || fail 1 "Could not solve goal with emptiesStack_t"
     | [ |- emptiesStackForever ?p ]
       => let p' := head p in
          constr_eq p' loop_pattern;
            rewrite loop_eta; simpl
+    | [ |- emptiesStackForever (Step _) ] => constructor
   end.
 
-Ltac emptiesStackForever_t loopGood' inputT loop_eta loop_pattern :=
-  repeat emptiesStackForever_t' loopGood' inputT loop_eta loop_pattern.
+Ltac emptiesStackForever_t loopGood' inputT loop_eta loop_pattern tac :=
+  repeat emptiesStackForever_t' loopGood' inputT loop_eta loop_pattern tac.

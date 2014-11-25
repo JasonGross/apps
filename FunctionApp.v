@@ -44,10 +44,10 @@ Section stackProcess.
       emptiesStack (stackLift a sw, p) p2.
 
   CoInductive emptiesStackForever : stackProcess -> Prop :=
-  | emptiesStackStep pf p' :
-      (forall (i : input),
-         emptiesStack (stackTransition (inr i) pf) (p' i) /\
-         emptiesStackForever (p' i)) ->
+  | emptiesStackStep pf:
+      (forall (i : input), exists p',
+         emptiesStack (stackTransition (inr i) pf) p' /\
+         emptiesStackForever p') ->
       emptiesStackForever (Step pf).
 
   Inductive stepStackProcessTerminates : stackWorld * stackProcess -> Prop :=
@@ -128,27 +128,26 @@ Section stackProcess.
   Defined.
 
   CoFixpoint runStackProcess (p : stackProcess) (h : emptiesStackForever p) : process input world.
-  constructor.
-  intro i.
-  destruct p as [pf].
-  pose (sap1 := pf (inr i)).
-  pose (sw := fst sap1 stackDone).
-  assert (stepStackProcessTerminates (sw, snd sap1)) as e1.
-  {
-    inversion h as [? ? h1].
-    destruct (h1 i).
-    eapply mkStepStackProcessTerminates.
-    eassumption.
-  }
-  destruct (stepStackProcess (sw, snd sap1) e1) as [a2 [p2 [e2 u2]]].
-  split.
-  { exact a2. }
-  {
-    apply (runStackProcess p2).
-    inversion h as [? p' h1].
-    destruct (h1 i).
-    rewrite (u2 (p' i)); assumption.
-  }
+  Proof.
+    refine (Step (fun i =>
+                    match p as p return emptiesStackForever p -> _ with
+                      | Step pf => fun h' => let sap1 := pf (inr i) in
+                                             let sw := fst sap1 stackDone in
+                                             let stepped := stepStackProcess (sw, snd sap1) _ in
+                                             (fst stepped, runStackProcess (proj1_sig (snd stepped)) _)
+                    end h));
+    clear runStackProcess p h.
+    {
+      inversion h' as [? h1]; subst.
+      destruct (h1 i) as [? [? ?]]; clear h1.
+      eapply mkStepStackProcessTerminates.
+      eassumption.
+    }
+    {
+      inversion h' as [? h1]; subst.
+      destruct (h1 i) as [? [? ?]].
+      erewrite (proj2 (proj2_sig (snd stepped))); eassumption.
+    }
   Defined.
 
 End stackProcess.

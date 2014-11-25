@@ -333,13 +333,26 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                                 (tickBoxLoop gpsHandler gpsSt)
                                                 (tickBoxLoop bussesHandler bussesSt))).
       Proof.
-        apply emptiesStackStep'.
-        intros [];
-          mbtaGood'_t(*;
-          try apply mbtaGood'*).
-        Guarded.
-        apply mbtaGood'.
-        Fail Guarded.
+        let tac := (idtac;
+                    match goal with
+                      | [ |- appcontext[match curData ?st with _ => _ end] ]
+                        => (destruct st as [[]]; simpl)
+                      | [ |- appcontext[match ?st with {| curData := _ |} => _ end] ]
+                        => (destruct st as [[]]; simpl)
+                      | [ H : unit |- _ ] => destruct H
+                      | _ => (progress unfold set_curData; simpl)
+                      | [ |- appcontext[if ?E then _ else _] ]
+                        => (let T := type of E in
+                            constr_eq T bool;
+                            case_eq E; intro)
+                    end) in
+        emptiesStackForever_t mbtaGood' mbtaInput (@mbtaLoop_eta) (@mbtaLoop) tac.
+        econstructor; split;
+        [ | solve [ eapply mbtaGood' ] ].
+        clear mbtaGood'.
+        emptiesStack_t' (@mbtaLoop_eta) (@mbtaLoop).
+        emptiesStack_t' (@mbtaLoop_eta) (@mbtaLoop).
+        emptiesStack_t' (@mbtaLoop_eta) (@mbtaLoop).
       Admitted.
 
       Lemma mbtaGood

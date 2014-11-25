@@ -1,4 +1,5 @@
 Require Import Ascii FunctionApp List Program.Basics String.
+Require Import FunctionAppLemmas FunctionAppTactics.
 Import ListNotations.
 
 Section ui.
@@ -43,42 +44,46 @@ Section ui.
       eauto.
   Defined.
 
+  Definition uiLoopBody (uiLoop : list (string * string) -> process uiInput world) (pws : list (string * string))
+  : uiInput -> action world * process uiInput world
+    := (fun i =>
+          match i with
+            | uiConsoleIn s =>
+              match split " " s with
+                | comm :: ls =>
+                  match string_dec comm "get", ls with
+                    | left _, account :: nil =>
+                      match
+                        find (fun p => if string_dec account (fst p)
+                                       then true else false) pws
+                      with
+                        | None =>
+                          (consoleOut "account not found", uiLoop pws)
+                        | Some (_, password) =>
+                          (consoleOut password, uiLoop pws)
+                      end
+                    | _, _ =>
+                      match string_dec comm "set", ls with
+                        | left _,  account :: password :: nil =>
+                          let pws' :=
+                              (account, password)
+                                :: filter (fun p => if string_dec account (fst p)
+                                                    then false else true) pws
+                          in (encrypt (dump pws'), uiLoop pws')
+
+                        | _, _ =>
+                          (consoleOut "unrecognized command", uiLoop pws)
+                      end
+                  end
+                | _ => (consoleOut "unrecognized command", uiLoop pws)
+              end
+            | uiDecrypted s =>
+              (id, uiLoop (load s))
+          end).
+
   CoFixpoint uiLoop (pws : list (string * string)) :=
-    Step (fun i =>
+    Step (uiLoopBody uiLoop pws).
 
-            match i with
-              | uiConsoleIn s =>
-                match split " " s with
-                  | comm :: ls =>
-                    match string_dec comm "get", ls with
-                      | left _, account :: nil =>
-                        match
-                          find (fun p => if string_dec account (fst p)
-                                         then true else false) pws
-                        with
-                          | None =>
-                            (consoleOut "account not found", uiLoop pws)
-                          | Some (_, password) =>
-                            (consoleOut password, uiLoop pws)
-                        end
-                      | _, _ =>
-                        match string_dec comm "set", ls with
-                          | left _,  account :: password :: nil =>
-                            let pws' :=
-                                (account, password)
-                                  :: filter (fun p => if string_dec account (fst p)
-                                                      then false else true) pws
-                            in (encrypt (dump pws'), uiLoop pws')
-
-                          | _, _ =>
-                            (consoleOut "unrecognized command", uiLoop pws)
-                        end
-                    end
-                  | _ => (consoleOut "unrecognized command", uiLoop pws)
-                end
-              | uiDecrypted s =>
-                (id, uiLoop (load s))
-            end).
 
   Definition ui := uiLoop nil.
 
@@ -144,7 +149,7 @@ Section pwMgr.
   CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage pwMgrInput world :=
     Step (pwMgrLoopBody pwMgrLoop ui net).
 
-  Definition 
+  Definition
     wrap_ui
     (ui :
        forall {world'},
@@ -173,139 +178,26 @@ Section pwMgr.
 
   Definition pwMgrStack := mkPwMgrStack ui net.
 
-  Require Import FunctionAppLemmas.
 
-  Lemma pwMgrLoop_eta ui net 
+  Lemma pwMgrLoop_eta ui net
   : pwMgrLoop ui net = Step (pwMgrLoopBody pwMgrLoop ui net).
   Proof.
     rewrite stackProcess_eta at 1; reflexivity.
   Qed.
 
-  CoInductive emptiesStackForever {message input world} : stackProcess message input world -> Prop :=
-  | emptiesStackStep pf:
-      (forall (i : input), exists p',
-         emptiesStack (stackTransition (inr i) pf) p' /\
-         emptiesStackForever p') ->
-      emptiesStackForever (Step pf).
-
   CoFixpoint pwMgrGood' :
     forall pws, emptiesStackForever
       (pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net)).
   Proof.
-    intros.
-    rewrite pwMgrLoop_eta.
-    econstructor.
-    intros.
-    unfold stackTransition; simpl.
-    destruct i; simpl.
-    destruct (split " " s); simpl.
-    eexists.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    destruct (string_dec s0 "get"); simpl.
-    destruct l; simpl.
-    destruct (string_dec s0 "set"); simpl.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    destruct l; simpl.
-    destruct (find (fun p => if string_dec s1 (fst p) then true else false) pws); simpl.
-    destruct p; simpl.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    destruct (string_dec s0 "set"); simpl.
-    destruct l; simpl.
-    rewrite pwMgrLoop_eta.
-    econstructor.
-    econstructor.
-    econstructor.
-    unfold stackTransition; simpl.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    destruct (string_dec s0 "set"); simpl.
-    destruct l; simpl.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    destruct l; simpl.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    destruct l; simpl.
-    rewrite pwMgrLoop_eta.
-    econstructor.
-    econstructor.
-    econstructor.
-    unfold stackTransition; simpl.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    econstructor.
-    econstructor.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
-    rewrite pwMgrLoop_eta.
-    econstructor.
-    econstructor.
-    econstructor.
-    unfold stackTransition; simpl.
-    econstructor.
-    econstructor.
-    eapply pwMgrGood'.
-    Guarded.
+    let tac := (idtac;
+                match goal with
+                  | [ |- appcontext[match split ?a ?b with _ => _ end] ] => destruct (split a b)
+                  | [ |- appcontext[match string_dec ?s0 ?s1 with _ => _ end] ] => destruct (string_dec s0 s1)
+                  | [ |- appcontext[match ?l with nil => _ | _ => _ end] ] => destruct l
+                  | [ |- appcontext[match find ?f ?ls with _ => _ end] ] => destruct (find f ls)
+                  | [ |- appcontext[match ?x with (_, _) => _ end] ] => rewrite (@surjective_pairing _ _ x)
+                end) in
+    emptiesStackForever_t pwMgrGood' pwMgrInput (@pwMgrLoop_eta) (@pwMgrLoop) tac.
   Qed.
 
   Theorem pwMgrGood pws :
