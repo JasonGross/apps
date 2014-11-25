@@ -181,13 +181,6 @@ Section pwMgr.
     rewrite stackProcess_eta at 1; reflexivity.
   Qed.
 
-  CoInductive emptiesStackForever {message input world} : stackProcess message input world -> Prop :=
-  | emptiesStackStep pf:
-      (forall (i : input), exists p',
-         emptiesStack (stackTransition (inr i) pf) p' /\
-         emptiesStackForever p') ->
-      emptiesStackForever (Step pf).
-
   CoFixpoint pwMgrGood' :
     forall pws, emptiesStackForever
       (pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net)).

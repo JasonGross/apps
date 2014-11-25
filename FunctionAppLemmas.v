@@ -13,7 +13,7 @@ Lemma emptiesStackStep' message input world pf
 Proof.
   econstructor.
   intro i.
-  instantiate (1 := fun i' => projT1 (H i')).
+  exists (projT1 (H i)).
   split; apply (projT2 (H _)).
 Defined.
 

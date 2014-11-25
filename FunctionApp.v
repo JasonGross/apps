@@ -44,10 +44,10 @@ Section stackProcess.
       emptiesStack (stackLift a sw, p) p2.
 
   CoInductive emptiesStackForever : stackProcess -> Prop :=
-  | emptiesStackStep pf p' :
-      (forall (i : input),
-         emptiesStack (stackTransition (inr i) pf) (p' i) /\
-         emptiesStackForever (p' i)) ->
+  | emptiesStackStep pf:
+      (forall (i : input), exists p',
+         emptiesStack (stackTransition (inr i) pf) p' /\
+         emptiesStackForever p') ->
       emptiesStackForever (Step pf).
 
   Inductive stepStackProcessTerminates : stackWorld * stackProcess -> Prop :=
@@ -135,8 +135,8 @@ Section stackProcess.
   pose (sw := fst sap1 stackDone).
   assert (stepStackProcessTerminates (sw, snd sap1)) as e1.
   {
-    inversion h as [? ? h1].
-    destruct (h1 i).
+    inversion h as [? h1].
+    destruct (h1 i) as [? [? ?]].
     eapply mkStepStackProcessTerminates.
     eassumption.
   }
@@ -145,9 +145,9 @@ Section stackProcess.
   { exact a2. }
   {
     apply (runStackProcess p2).
-    inversion h as [? p' h1].
-    destruct (h1 i).
-    rewrite (u2 (p' i)); assumption.
+    inversion h as [? h1].
+    destruct (h1 i) as [p' [? ?] ].
+    rewrite (u2 p'); assumption.
   }
   Defined.
 
