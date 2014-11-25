@@ -38,11 +38,11 @@ Set Implicit Arguments.
 
     Every [X] ticks, if there has been a notified change in the last
     [Y] ticks, or if the last published value is out of date, the Tick
-    Box will publish its current value, and then request an updated
-    value from the encryption box.  The encryption box should
-    construct a unique encryption (using its own source of
+    Box will publish its current value, and then, [Z] ticks later,
+    request an updated value from the encryption box.  The encryption
+    box should construct a unique encryption (using its own source of
     randomness), and raise the "publish value (data in)" event with
-    that new value.
+    that new value.  We must have [Z < X].
 
     The tick box will emit a warning if it has not recieved a "publish
     value (data in)" event after its most recent request when it is
@@ -52,7 +52,7 @@ Set Implicit Arguments.
 
     The tick box will emit a separate warning if it detects that the
     program is being insufficiently responsive, and that the number of
-    ticks between publishes is different from [X] by at least [Z].
+    ticks between publishes is different from [X] by at least [W].
 
     ** Configurable parameters
 
@@ -65,16 +65,20 @@ Set Implicit Arguments.
       value of [0] means to publish at most once for each change.  A
       special flag value of [∞] means to always publish.
 
-    - [publishPrecision] ([Z] above) - Suppose the clock does not
+    - [waitBeforeUpdateInterval] ([Z] above) - the number of ticks to
+      wait after a publish before requesting an update.
+
+    - [publishPrecision] ([W] above) - Suppose the clock does not
       publish on every tick, and we find that, previously, we were
       given tick [X₀ < X], and on the current update, we are given [X₁
-      > X].  We will emit a warning iff [X₁ - X > Z + 1].
+      > X].  We will emit a warning iff [X₁ - X > W + 1].
 
 
-    Note: Setting [PublishInterval] is a privlidged operation: if it
-          is set too low, then there will not be time to complete the
-          computation between successive publishes, and timing
-          information will be leaked.
+    Note: Setting [publishInterval] and [waitBeforeUpdateInterval] are
+          privlidged operations: if [publishInterval] is too low
+          relative to [waitBeforeUpdateInterval], then there will not
+          be time to complete the computation between successive
+          publishes, and timing information will be leaked.
 
           Similarly, if [PublishDuration] is set to any value other
           than [∞], a controlled amount of timing information is
@@ -109,9 +113,27 @@ Set Implicit Arguments.
    ┌─────────── │  waiting on data   │ ──────────────────────────> │     have data     │
    └──────────> │                    │  |                          │                   │ ───┐ Notify Change
 reset publishes └────────────────────┘  |                          └───────────────────┘ <──┘ reset publishes to 0
-to 0                      ^             |                                   │ Tick to > X
-               Fire:      | No          | Yes                               │ Fire: Transmit Data
-           Request Update |             |                                   V
+to 0                      ^             |                                   │
+                          │             |                                   │
+                          │             |                                   │
+               Fire:      │ Tick to ≥ Z |                                   │
+           Request Update │             |                                   │
+                          │             |                                   │
+                          │             |                                   │
+                          │    Tick to  |                                   │
+                          │     < Z     |                                   │
+                          │   ┌─────┐   |                                   │
+                          │   │     │   |                                   │
+                          │   V     │   |                                   │
+                ┌────────────────────┐  |                                   │
+  Notify Change │                    │  |                                   │
+   ┌─────────── │  waiting on ticks  │  |                                   │
+   └──────────> │                    │  |                                   │
+reset publishes └────────────────────┘  |                                   │
+to 0                      ^             |                                   │
+                          |             |                                   │ Tick to > X
+                          | No          | Yes                               │ Fire: Transmit Data
+                          |             |                                   V
                          +-----------------------+      No         +-------------------+
                          |                       | <-------------  |                   |
                          |   Enough Publishes?   |                 | Ticks too coarse? |
@@ -137,6 +159,7 @@ Definition duration_leb (x : nat) (y : PublishDurationT) : bool :=
 Infix "<=?" := duration_leb : duration_scope.
 
 Notation "x >? y" := (y <? x) (at level 70, right associativity) : nat_scope.
+Notation "x >=? y" := (y <=? x) (at level 70, right associativity) : nat_scope.
 
 Section trustedTickBox.
   Variable dataT : Type.
@@ -145,13 +168,15 @@ Section trustedTickBox.
   | NoData
   | InitiallyWaitingOnData
   | HaveData (data : dataT) (ticks : nat) (publishesSinceLastChange : option nat)
-  | WaitingOnData (ticks : nat) (publishesSinceLastChange : option nat).
+  | WaitingOnData (ticks : nat) (publishesSinceLastChange : option nat)
+  | WaitingOnTicks (ticks : nat) (publishesSinceLastChange : option nat).
 
   Record TickBoxState :=
     {
       curData :> TickBoxPreState;
       publishInterval : nat;
       publishDuration : PublishDurationT;
+      waitBeforeUpdateInterval : nat;
       publishPrecision : nat
     }.
 
@@ -161,6 +186,7 @@ fields=[(x.strip(), y.strip()) for x, y in [z.split(':') for z in """
       curData : TickBoxPreState;
       publishInterval : nat;
       publishDuration : PublishDurationT;
+      waitBeforeUpdateInterval : nat;
       publishPrecision : nat""".split(';')]]
 for field0, ty0 in fields:
     body = ';\n          '.join((('%s := st.(%s)' % (field, field)) if field != field0 else ('%s := v' % field))
@@ -173,24 +199,35 @@ for field0, ty0 in fields:
     := {| curData := v;
           publishInterval := st.(publishInterval);
           publishDuration := st.(publishDuration);
+          waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
           publishPrecision := st.(publishPrecision) |}.
 
   Definition set_publishInterval (st : TickBoxState) (v : nat)
     := {| curData := st.(curData);
           publishInterval := v;
           publishDuration := st.(publishDuration);
+          waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
           publishPrecision := st.(publishPrecision) |}.
 
   Definition set_publishDuration (st : TickBoxState) (v : PublishDurationT)
     := {| curData := st.(curData);
           publishInterval := st.(publishInterval);
           publishDuration := v;
+          waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
+          publishPrecision := st.(publishPrecision) |}.
+
+  Definition set_waitBeforeUpdateInterval (st : TickBoxState) (v : nat)
+    := {| curData := st.(curData);
+          publishInterval := st.(publishInterval);
+          publishDuration := st.(publishDuration);
+          waitBeforeUpdateInterval := v;
           publishPrecision := st.(publishPrecision) |}.
 
   Definition set_publishPrecision (st : TickBoxState) (v : nat)
     := {| curData := st.(curData);
           publishInterval := st.(publishInterval);
           publishDuration := st.(publishDuration);
+          waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
           publishPrecision := v |}.
 
   Inductive tbInput :=
@@ -199,6 +236,7 @@ for field0, ty0 in fields:
   | tbValueReady (val : dataT)
   | tbSetPublishInterval (_ : nat)
   | tbSetPublishDuration (_ : PublishDurationT)
+  | tbSetWaitBeforeUpdateInterval (_ : nat)
   | tbSetPublishPrecision (_ : nat).
 
   Inductive tbOutput :=
@@ -206,6 +244,7 @@ for field0, ty0 in fields:
   | tbPublishUpdate (val : dataT)
   | tbWarnNoDataReady
   | tbWarnTicksTooInfrequent
+  | tbWarnInvalidWaitBeforeUpdateInterval (_ : nat)
   | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbInput).
 
 
@@ -216,15 +255,27 @@ for field0, ty0 in fields:
     {| curData := NoData;
        publishInterval := 0;
        publishDuration := ∞;
+       waitBeforeUpdateInterval := 0;
        publishPrecision := 0 |}.
 
   Definition readyToTransmit (ticks : nat) (st : TickBoxState) : bool :=
     ticks >? st.(publishInterval).
 
+  Definition readyToGetUpdate (ticks : nat) (st : TickBoxState) : bool :=
+    ticks >? st.(waitBeforeUpdateInterval).
+
+  Definition invalidWaitBeforeUpdateInterval (val : nat) (st : TickBoxState) : bool :=
+    val >? st.(publishInterval).
+
   (** Should we emit a warning about [tbTick] not being called often
       enough? *)
   Definition ticksTooCoarse (ticks : nat) (st : TickBoxState) : bool :=
     ticks - st.(publishInterval) >? st.(publishPrecision) + 1.
+
+  (** Should we emit a warning about [tbTick] not being called often
+      enough, when we're waiting to request an update? *)
+  Definition ticksTooCoarseWaitingOnTicks (ticks : nat) (st : TickBoxState) : bool :=
+    ticks - st.(waitBeforeUpdateInterval) >? st.(publishPrecision) + 1.
 
   (** Have we transmitted enough times since the last change to sleep? *)
   Definition enoughTransmissions (publishesSinceLastChange : nat) (st : TickBoxState) : bool :=
@@ -239,6 +290,11 @@ for field0, ty0 in fields:
 
            | tbSetPublishInterval val, _
              => (id, tickBoxLoop (set_publishInterval st val))
+
+           | tbSetWaitBeforeUpdateInterval val, _
+             => if invalidWaitBeforeUpdateInterval val st
+                then (handle (tbWarnInvalidWaitBeforeUpdateInterval val), tickBoxLoop st)
+                else (id, tickBoxLoop (set_waitBeforeUpdateInterval st val))
 
            | tbSetPublishDuration val, _
              => (id, tickBoxLoop (set_publishDuration st val))
@@ -255,6 +311,9 @@ for field0, ty0 in fields:
            | tbNotifyChange, WaitingOnData ticks publishesSinceLastChange
              => (id, tickBoxLoop (set_curData st (WaitingOnData ticks None)))
 
+           | tbNotifyChange, WaitingOnTicks ticks publishesSinceLastChange
+             => (id, tickBoxLoop (set_curData st (WaitingOnTicks ticks None)))
+
            | tbNotifyChange, InitiallyWaitingOnData
              => (id, tickBoxLoop st)
 
@@ -270,6 +329,9 @@ for field0, ty0 in fields:
            | tbValueReady _, NoData
              => (handle (tbWarnInvalidEvent st.(curData) i), tickBoxLoop st)
 
+           | tbValueReady data, WaitingOnTicks _ _
+             => (handle (tbWarnInvalidEvent st.(curData) i), tickBoxLoop st)
+
            | tbTick ticksSinceLastTbTick, NoData
              => (id, tickBoxLoop st)
 
@@ -277,23 +339,31 @@ for field0, ty0 in fields:
              => (id, tickBoxLoop st)
 
            | tbTick ticksSinceLastTbTick, HaveData data ticks publishesSinceLastChange
-             => let st' := set_curData st (HaveData data (ticksSinceLastTbTick + ticks) publishesSinceLastChange) in
+             => let ticks' := ticksSinceLastTbTick + ticks in
+                let st' := set_curData st (HaveData data ticks' publishesSinceLastChange) in
                 let publishesSinceLastChange' := match publishesSinceLastChange with
                                                    | None => 0
                                                    | Some n => n + 1
                                                  end in
-                (** XXX TODO FIXME: we must have that the
-                             publish comes first, or else this box is
-                             useless.  Does [foo ∘ bar] mean "first
-                             [bar], then [foo]" or "first [foo], then
-                             [bar]"? *)
                 let actions := handle (tbPublishUpdate data) in
-                let actions := (if ticksTooCoarse ticks st'
+                let actions := (if ticksTooCoarse ticks' st'
                                 then actions ∘ handle tbWarnTicksTooInfrequent
                                 else actions) in
-                if enoughTransmissions publishesSinceLastChange' st'
-                then (actions, tickBoxLoop (set_curData st NoData))
-                else (actions ∘ handle tbRequestDataUpdate, tickBoxLoop (set_curData st (WaitingOnData 0 (Some publishesSinceLastChange'))))
+                (actions,
+                 (if enoughTransmissions publishesSinceLastChange' st'
+                  then tickBoxLoop (set_curData st NoData)
+                  else tickBoxLoop (set_curData st (WaitingOnTicks 0 (Some publishesSinceLastChange')))))
+
+           | tbTick ticksSinceLastTick, WaitingOnTicks ticks publishesSinceLastChange
+             => let ticks' := ticksSinceLastTick + ticks in
+                let st_request := set_curData st (WaitingOnData ticks' publishesSinceLastChange) in
+                let st_waiting := set_curData st (WaitingOnTicks ticks' publishesSinceLastChange) in
+                let actions := (if ticksTooCoarseWaitingOnTicks ticks' st
+                                then handle tbWarnTicksTooInfrequent
+                                else id) in
+                if readyToGetUpdate ticks' st
+                then (actions ∘ handle tbRequestDataUpdate, tickBoxLoop st_request)
+                else (actions, tickBoxLoop st_waiting)
 
            | tbTick ticksSinceLastTick, WaitingOnData ticks publishesSinceLastChange
              => let ticks' := ticks + ticksSinceLastTick in

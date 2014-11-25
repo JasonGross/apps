@@ -268,6 +268,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
                  | tbPublishUpdate _ => stackLift (handle mbtaOutRequestGPSUpdate)
                  | tbWarnNoDataReady => stackLift id
                  | tbWarnTicksTooInfrequent => stackLift id
+                 | tbWarnInvalidWaitBeforeUpdateInterval _ => stackLift id
                end).
 
       Definition bussesHandler
@@ -278,6 +279,7 @@ Module MBTARequester (GPS : GPSCoordinateType).
                  | tbPublishUpdate _ => stackLift (handle mbtaOutRequestBussesUpdate)
                  | tbWarnNoDataReady => stackLift id
                  | tbWarnTicksTooInfrequent => stackLift id
+                 | tbWarnInvalidWaitBeforeUpdateInterval _ => stackLift id
                end).
 
       Definition mkMBTAStack
