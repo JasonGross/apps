@@ -187,8 +187,9 @@ Section pwMgr.
 
   CoFixpoint pwMgrGood' :
     forall pws, emptiesStackForever
-      (pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net)).
+      (Step (pwMgrLoopBody pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net))).
   Proof.
+    intro; constructor.
     let tac := (idtac;
                 match goal with
                   | [ |- appcontext[match split ?a ?b with _ => _ end] ] => destruct (split a b)
@@ -206,6 +207,8 @@ Section pwMgr.
          (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)
          net).
   Proof.
+    unfold mkPwMgrStack.
+    rewrite pwMgrLoop_eta.
     eapply pwMgrGood'.
   Qed.
 

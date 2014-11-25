@@ -49,6 +49,7 @@ End GPSCoordinateType.
     the tick boxes.  The unlabeled double-way arrows are helpers for
     the tick boxes.  *)
 
+
 Module MBTARequester (GPS : GPSCoordinateType).
   Local Notation GPSCoordinate := GPS.t.
 
@@ -260,22 +261,24 @@ Module MBTARequester (GPS : GPSCoordinateType).
                      end).
 
       Definition gpsHandler
-        := (fun s => match s with
-                       | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
-                       | tbRequestDataUpdate => stackPush mbtaRequestGPS
-                       | tbPublishUpdate tt => stackLift (handle mbtaOutRequestGPSUpdate)
-                       | tbWarnNoDataReady => stackLift id
-                       | tbWarnTicksTooInfrequent => stackLift id
-                     end).
+        := (fun s : tbOutput unit
+            => match s with
+                 | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
+                 | tbRequestDataUpdate => stackPush mbtaRequestGPS
+                 | tbPublishUpdate _ => stackLift (handle mbtaOutRequestGPSUpdate)
+                 | tbWarnNoDataReady => stackLift id
+                 | tbWarnTicksTooInfrequent => stackLift id
+               end).
 
       Definition bussesHandler
-        := (fun s => match s with
-                       | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
-                       | tbRequestDataUpdate => stackPush mbtaRequestBusses
-                       | tbPublishUpdate tt => stackLift (handle mbtaOutRequestBussesUpdate)
-                       | tbWarnNoDataReady => stackLift id
-                       | tbWarnTicksTooInfrequent => stackLift id
-                     end).
+        := (fun s : tbOutput unit
+            => match s with
+                 | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
+                 | tbRequestDataUpdate => stackPush mbtaRequestBusses
+                 | tbPublishUpdate _ => stackLift (handle mbtaOutRequestBussesUpdate)
+                 | tbWarnNoDataReady => stackLift id
+                 | tbWarnTicksTooInfrequent => stackLift id
+               end).
 
       Definition mkMBTAStack
                  (ui :
@@ -300,60 +303,23 @@ Module MBTARequester (GPS : GPSCoordinateType).
                                           (fun world handle => tickBox handle)
                                           (fun world handle => tickBox handle).
 
-      (** Not necessary for proof, but useful for looking at goals left over. *)
-      Local Ltac prettify :=
-        repeat match goal with
-                 | [ |- appcontext[mbtaLoopBody _ (?uiLoop0 _) (?gpsLoop0 _) (?bussesLoop0 _)] ]
-                   => progress (try change uiLoop0 with (@uiLoop _ uiHandler);
-                                try change gpsLoop0 with (@tickBoxLoop unit _ gpsHandler);
-                                try change bussesLoop0 with (@tickBoxLoop unit _ bussesHandler))
-               end.
-
-      Local Ltac mbtaGood'_t :=
-        repeat match goal with
-                 | _ => progress simpl
-                 | [ |- appcontext[match curData ?st with _ => _ end] ]
-                   => destruct st as [[]]; simpl
-                 | [ |- appcontext[match ?st with {| curData := _ |} => _ end] ]
-                   => destruct st as [[]]; simpl
-                 | [ H : unit |- _ ] => destruct H
-                 | _ => progress unfold set_curData; simpl
-                 | _ => progress emptiesStack_t mbtaLoop_eta (@mbtaLoop)
-                 | [ |- appcontext[if ?E then _ else _] ]
-                   => let T := type of E in
-                      constr_eq T bool;
-                        case_eq E; intro
-                 | _ => rewrite !mbtaLoop_eta
-               end;
-        prettify.
-
       CoFixpoint mbtaGood' uiSt gpsSt bussesSt
       : emptiesStackForever (Step (mbtaLoopBody mbtaLoop
                                                 (uiLoop (stackWorld mbtaMessage world) uiHandler uiSt)
                                                 (tickBoxLoop gpsHandler gpsSt)
                                                 (tickBoxLoop bussesHandler bussesSt))).
       Proof.
+        destruct gpsSt as [[]], bussesSt as [[]];
+        constructor;
         let tac := (idtac;
                     match goal with
-                      | [ |- appcontext[match curData ?st with _ => _ end] ]
-                        => (destruct st as [[]]; simpl)
-                      | [ |- appcontext[match ?st with {| curData := _ |} => _ end] ]
-                        => (destruct st as [[]]; simpl)
-                      | [ H : unit |- _ ] => destruct H
-                      | _ => (progress unfold set_curData; simpl)
                       | [ |- appcontext[if ?E then _ else _] ]
                         => (let T := type of E in
                             constr_eq T bool;
                             case_eq E; intro)
                     end) in
         emptiesStackForever_t mbtaGood' mbtaInput (@mbtaLoop_eta) (@mbtaLoop) tac.
-        econstructor; split;
-        [ | solve [ eapply mbtaGood' ] ].
-        clear mbtaGood'.
-        emptiesStack_t' (@mbtaLoop_eta) (@mbtaLoop).
-        emptiesStack_t' (@mbtaLoop_eta) (@mbtaLoop).
-        emptiesStack_t' (@mbtaLoop_eta) (@mbtaLoop).
-      Admitted.
+      Qed.
 
       Lemma mbtaGood
       : emptiesStackForever mbtaStack.

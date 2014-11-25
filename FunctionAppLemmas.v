@@ -23,7 +23,7 @@ Definition stackProcess_eta message input world (p : stackProcess message input 
       end.
 Proof.
   destruct p; reflexivity.
-Qed.
+Defined.
 
 Definition process_eta input world (p : process input world)
 : p = match p with
@@ -31,38 +31,75 @@ Definition process_eta input world (p : process input world)
       end.
 Proof.
   destruct p; reflexivity.
-Qed.
+Defined.
 
 Lemma emptiesStackDone' message input world p q (H : p = q) : @emptiesStack message input world (stackDone, p) q.
 Proof.
   subst.
   constructor.
-Qed.
+Defined.
 
 Lemma emptiesStackPush_sigT {message input world} (m : message) (sw : stackWorld message world)
       (pf : stackStep) P
 : { p2 : stackProcess message input world & emptiesStack (stackTransition (inl m) pf) p2 * { p3 : _ & emptiesStack (sw, p2) p3 * P p3 } }
   -> { p3 : _ & emptiesStack (stackPush m sw, Step pf) p3 * P p3 }.
 Proof.
-  intros [? [? [? [? ?]]]].
+  intro H.
   eexists.
-  split; try eapply emptiesStackPush; eassumption.
-Qed.
+  split; [ eapply emptiesStackPush | ];
+  first [ apply (fst (projT2 H))
+        | apply (fst (projT2 (snd (projT2 H))))
+        | apply (snd (projT2 (snd (projT2 H)))) ].
+Defined.
 
 Lemma emptiesStackLift_sigT {message input world} (a : action world) (sw : stackWorld message world)
       (p : stackProcess message input world) P
 : { p2 : _ & emptiesStack (sw, p) p2 * P p2 }
   -> { p2 : _ & emptiesStack (stackLift a sw, p) p2 * P p2 }.
 Proof.
-  intros [? [? ?]].
+  intro H.
   eexists.
-  split; try eapply emptiesStackLift; eassumption.
-Qed.
+  split; [ eapply emptiesStackLift | ];
+  first [ apply (fst (projT2 H))
+        | apply (snd (projT2 H)) ].
+Defined.
 
 Lemma emptiesStackDone_sigT {message input world} p (P : stackProcess message input world -> Type)
 : P p -> { p' : _ & emptiesStack (stackDone, p) p' * P p' }.
 Proof.
   intro H.
   eexists.
-  split; try eapply emptiesStackDone; eassumption.
-Qed.
+  split; [ eapply emptiesStackDone | ]; eassumption.
+Defined.
+
+Lemma emptiesStackPush_ex {message input world} (m : message) (sw : stackWorld message world)
+      (pf : stackStep) P
+: (exists p2 : stackProcess message input world,
+     emptiesStack (stackTransition (inl m) pf) p2
+     /\ exists p3 : _, emptiesStack (sw, p2) p3 /\ P p3)
+  -> exists p3 : _, emptiesStack (stackPush m sw, Step pf) p3 /\ P p3.
+Proof.
+  intros [? [? [? [? ?]]]].
+  eexists.
+  split; [ eapply emptiesStackPush | ];
+  eassumption.
+Defined.
+
+Lemma emptiesStackLift_ex {message input world} (a : action world) (sw : stackWorld message world)
+      (p : stackProcess message input world) P
+: (exists p2 : _, emptiesStack (sw, p) p2 /\ P p2)
+  -> exists p2 : _, emptiesStack (stackLift a sw, p) p2 /\ P p2.
+Proof.
+  intros [? [? ?]].
+  eexists.
+  split; [ eapply emptiesStackLift | ];
+  eassumption.
+Defined.
+
+Lemma emptiesStackDone_ex {message input world} p (P : stackProcess message input world -> Prop)
+: P p -> exists p' : _, emptiesStack (stackDone, p) p' /\ P p'.
+Proof.
+  intro H.
+  eexists.
+  split; [ eapply emptiesStackDone | ]; eassumption.
+Defined.
