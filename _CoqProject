@@ -5,6 +5,8 @@ Refinement.v
 ModelCheck.v
 Examples.v
 EncryptionInterface.v
+TrustedEncryptBox.v
+TrustedDecryptBox.v
 SecurityExamples.v
 PiCalculus.v
 PiCalculus2.v
