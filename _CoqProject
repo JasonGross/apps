@@ -4,6 +4,7 @@ Process.v
 Refinement.v
 ModelCheck.v
 Examples.v
+EncryptionInterface.v
 SecurityExamples.v
 PiCalculus.v
 PiCalculus2.v

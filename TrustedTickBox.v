@@ -230,23 +230,29 @@ for field0, ty0 in fields:
           waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
           publishPrecision := v |}.
 
-  Inductive tbInput :=
-  | tbNotifyChange
-  | tbTick (addedTickCount : nat)
-  | tbValueReady (val : dataT)
+  Inductive tbConfigInput :=
   | tbSetPublishInterval (_ : nat)
   | tbSetPublishDuration (_ : PublishDurationT)
   | tbSetWaitBeforeUpdateInterval (_ : nat)
   | tbSetPublishPrecision (_ : nat).
 
-  Inductive tbOutput :=
-  | tbRequestDataUpdate
-  | tbPublishUpdate (val : dataT)
+  Inductive tbEventInput :=
+  | tbNotifyChange
+  | tbTick (addedTickCount : nat)
+  | tbValueReady (val : dataT).
+
+  Inductive tbWarningOutput :=
   | tbWarnNoDataReady
   | tbWarnTicksTooInfrequent
   | tbWarnInvalidWaitBeforeUpdateInterval (_ : nat)
-  | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbInput).
+  | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbEventInput).
 
+  Inductive tbEventOutput :=
+  | tbRequestDataUpdate
+  | tbPublishUpdate (val : dataT).
+
+  Definition tbInput := (tbConfigInput + tbEventInput)%type.
+  Definition tbOutput := (tbWarningOutput + tbEventOutput)%type.
 
   Context (world : Type)
           (handle : tbOutput -> action world).
@@ -288,87 +294,87 @@ for field0, ty0 in fields:
     := fun i =>
          match i, st.(curData) with
 
-           | tbSetPublishInterval val, _
+           | inl (tbSetPublishInterval val), _
              => (id, tickBoxLoop (set_publishInterval st val))
 
-           | tbSetWaitBeforeUpdateInterval val, _
+           | inl (tbSetWaitBeforeUpdateInterval val), _
              => if invalidWaitBeforeUpdateInterval val st
-                then (handle (tbWarnInvalidWaitBeforeUpdateInterval val), tickBoxLoop st)
+                then (handle (inl (tbWarnInvalidWaitBeforeUpdateInterval val)), tickBoxLoop st)
                 else (id, tickBoxLoop (set_waitBeforeUpdateInterval st val))
 
-           | tbSetPublishDuration val, _
+           | inl (tbSetPublishDuration val), _
              => (id, tickBoxLoop (set_publishDuration st val))
 
-           | tbSetPublishPrecision val, _
+           | inl (tbSetPublishPrecision val), _
              => (id, tickBoxLoop (set_publishPrecision st val))
 
-           | tbNotifyChange, NoData
-             => (handle tbRequestDataUpdate, tickBoxLoop (set_curData st InitiallyWaitingOnData))
+           | inr tbNotifyChange, NoData
+             => (handle (inr tbRequestDataUpdate), tickBoxLoop (set_curData st InitiallyWaitingOnData))
 
-           | tbNotifyChange, HaveData data ticks publishesSinceLastChange
+           | inr tbNotifyChange, HaveData data ticks publishesSinceLastChange
              => (id, tickBoxLoop (set_curData st (HaveData data ticks None)))
 
-           | tbNotifyChange, WaitingOnData ticks publishesSinceLastChange
+           | inr tbNotifyChange, WaitingOnData ticks publishesSinceLastChange
              => (id, tickBoxLoop (set_curData st (WaitingOnData ticks None)))
 
-           | tbNotifyChange, WaitingOnTicks ticks publishesSinceLastChange
+           | inr tbNotifyChange, WaitingOnTicks ticks publishesSinceLastChange
              => (id, tickBoxLoop (set_curData st (WaitingOnTicks ticks None)))
 
-           | tbNotifyChange, InitiallyWaitingOnData
+           | inr tbNotifyChange, InitiallyWaitingOnData
              => (id, tickBoxLoop st)
 
-           | tbValueReady data, InitiallyWaitingOnData
+           | inr (tbValueReady data), InitiallyWaitingOnData
              => (id, tickBoxLoop (set_curData st (HaveData data 0 (Some 0))))
 
-           | tbValueReady data, WaitingOnData ticks publishesSinceLastChange
+           | inr (tbValueReady data), WaitingOnData ticks publishesSinceLastChange
              => (id, tickBoxLoop (set_curData st (HaveData data ticks publishesSinceLastChange)))
 
-           | tbValueReady data, HaveData _ _ _
-             => (handle (tbWarnInvalidEvent st.(curData) i), tickBoxLoop st)
+           | inr (tbValueReady data), HaveData _ _ _
+             => (handle (inl (tbWarnInvalidEvent st.(curData) (tbValueReady data))), tickBoxLoop st)
 
-           | tbValueReady _, NoData
-             => (handle (tbWarnInvalidEvent st.(curData) i), tickBoxLoop st)
+           | inr (tbValueReady data), NoData
+             => (handle (inl (tbWarnInvalidEvent st.(curData) (tbValueReady data))), tickBoxLoop st)
 
-           | tbValueReady data, WaitingOnTicks _ _
-             => (handle (tbWarnInvalidEvent st.(curData) i), tickBoxLoop st)
+           | inr (tbValueReady data), WaitingOnTicks _ _
+             => (handle (inl (tbWarnInvalidEvent st.(curData) (tbValueReady data))), tickBoxLoop st)
 
-           | tbTick ticksSinceLastTbTick, NoData
+           | inr (tbTick ticksSinceLastTbTick), NoData
              => (id, tickBoxLoop st)
 
-           | tbTick ticksSinceLastTbTick, InitiallyWaitingOnData
+           | inr (tbTick ticksSinceLastTbTick), InitiallyWaitingOnData
              => (id, tickBoxLoop st)
 
-           | tbTick ticksSinceLastTbTick, HaveData data ticks publishesSinceLastChange
+           | inr (tbTick ticksSinceLastTbTick), HaveData data ticks publishesSinceLastChange
              => let ticks' := ticksSinceLastTbTick + ticks in
                 let st' := set_curData st (HaveData data ticks' publishesSinceLastChange) in
                 let publishesSinceLastChange' := match publishesSinceLastChange with
                                                    | None => 0
                                                    | Some n => n + 1
                                                  end in
-                let actions := handle (tbPublishUpdate data) in
+                let actions := handle (inr (tbPublishUpdate data)) in
                 let actions := (if ticksTooCoarse ticks' st'
-                                then actions ∘ handle tbWarnTicksTooInfrequent
+                                then actions ∘ handle (inl tbWarnTicksTooInfrequent)
                                 else actions) in
                 (actions,
                  (if enoughTransmissions publishesSinceLastChange' st'
                   then tickBoxLoop (set_curData st NoData)
                   else tickBoxLoop (set_curData st (WaitingOnTicks 0 (Some publishesSinceLastChange')))))
 
-           | tbTick ticksSinceLastTick, WaitingOnTicks ticks publishesSinceLastChange
+           | inr (tbTick ticksSinceLastTick), WaitingOnTicks ticks publishesSinceLastChange
              => let ticks' := ticksSinceLastTick + ticks in
                 let st_request := set_curData st (WaitingOnData ticks' publishesSinceLastChange) in
                 let st_waiting := set_curData st (WaitingOnTicks ticks' publishesSinceLastChange) in
                 let actions := (if ticksTooCoarseWaitingOnTicks ticks' st
-                                then handle tbWarnTicksTooInfrequent
+                                then handle (inl tbWarnTicksTooInfrequent)
                                 else id) in
                 if readyToGetUpdate ticks' st
-                then (actions ∘ handle tbRequestDataUpdate, tickBoxLoop st_request)
+                then (actions ∘ handle (inr tbRequestDataUpdate), tickBoxLoop st_request)
                 else (actions, tickBoxLoop st_waiting)
 
-           | tbTick ticksSinceLastTick, WaitingOnData ticks publishesSinceLastChange
+           | inr (tbTick ticksSinceLastTick), WaitingOnData ticks publishesSinceLastChange
              => let ticks' := ticks + ticksSinceLastTick in
                 ((if readyToTransmit ticks' st
-                  then handle tbWarnNoDataReady
+                  then handle (inl tbWarnNoDataReady)
                   else id),
                  tickBoxLoop (set_curData st (WaitingOnData ticks' publishesSinceLastChange)))
 

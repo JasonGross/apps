@@ -212,22 +212,22 @@ Module MBTARequester (GPS : GPSCoordinateType).
                 | inl mbtaBadState =>
                   (stackPush mbtaBadState, mbtaLoop ui tbGPS tbBusses)
                 | inl mbtaRequestGPS =>
-                  let (a, tbGPS') := getStep tbGPS (tbNotifyChange unit) in
+                  let (a, tbGPS') := getStep tbGPS (inr (tbNotifyChange unit)) in
                   (a, mbtaLoop ui tbGPS' tbBusses)
                 | inl mbtaRequestBusses =>
-                  let (a, tbGPS') := getStep tbGPS (tbNotifyChange unit) in
+                  let (a, tbGPS') := getStep tbGPS (inr (tbNotifyChange unit)) in
                   (a, mbtaLoop ui tbGPS' tbBusses)
                 | inl mbtaTbGPSRequestDataUpdate =>
                   (** We can just say that we're immediately ready with a value *)
-                  let (a, tbGPS') := getStep tbGPS (tbValueReady tt) in
+                  let (a, tbGPS') := getStep tbGPS (inr (tbValueReady tt)) in
                   (a, mbtaLoop ui tbGPS' tbBusses)
                 | inl mbtaTbBussesRequestDataUpdate =>
                   (** We can just say that we're immediately ready with a value *)
-                  let (a, tbBusses') := getStep tbBusses (tbValueReady tt) in
+                  let (a, tbBusses') := getStep tbBusses (inr (tbValueReady tt)) in
                   (a, mbtaLoop ui tbGPS tbBusses')
                 | inr (mbtaTick extraTicks) =>
-                  let (a, tbGPS') := getStep tbGPS (tbTick unit extraTicks) in
-                  let (a', tbBusses') := getStep tbBusses (tbTick unit extraTicks) in
+                  let (a, tbGPS') := getStep tbGPS (inr (tbTick unit extraTicks)) in
+                  let (a', tbBusses') := getStep tbBusses (inr (tbTick unit extraTicks)) in
                   (a' ∘ a, mbtaLoop ui tbGPS' tbBusses')
                 | inr mbtaRequestUpdate =>
                   let (a, ui') := getStep ui uiRequestUpdate in
@@ -263,23 +263,19 @@ Module MBTARequester (GPS : GPSCoordinateType).
       Definition gpsHandler
         := (fun s : tbOutput unit
             => match s with
-                 | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
-                 | tbRequestDataUpdate => stackPush mbtaRequestGPS
-                 | tbPublishUpdate _ => stackLift (handle mbtaOutRequestGPSUpdate)
-                 | tbWarnNoDataReady => stackLift id
-                 | tbWarnTicksTooInfrequent => stackLift id
-                 | tbWarnInvalidWaitBeforeUpdateInterval _ => stackLift id
+                 | inl (tbWarnInvalidEvent _ _) => stackPush mbtaBadState
+                 | inr tbRequestDataUpdate => stackPush mbtaRequestGPS
+                 | inr (tbPublishUpdate _) => stackLift (handle mbtaOutRequestGPSUpdate)
+                 | inl _ => stackLift id
                end).
 
       Definition bussesHandler
         := (fun s : tbOutput unit
             => match s with
-                 | tbWarnInvalidEvent _ _ => stackPush mbtaBadState
-                 | tbRequestDataUpdate => stackPush mbtaRequestBusses
-                 | tbPublishUpdate _ => stackLift (handle mbtaOutRequestBussesUpdate)
-                 | tbWarnNoDataReady => stackLift id
-                 | tbWarnTicksTooInfrequent => stackLift id
-                 | tbWarnInvalidWaitBeforeUpdateInterval _ => stackLift id
+                 | inl (tbWarnInvalidEvent _ _) => stackPush mbtaBadState
+                 | inr tbRequestDataUpdate => stackPush mbtaRequestBusses
+                 | inr (tbPublishUpdate _) => stackLift (handle mbtaOutRequestBussesUpdate)
+                 | inl _ => stackLift id
                end).
 
       Definition mkMBTAStack
