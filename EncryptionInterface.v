@@ -32,9 +32,7 @@ Module Type EncryptionAlgorithm (DataTypes : EncryptionDataTypes).
 
   Parameter isValidMasterKey : masterKeyT -> bool.
 
-  Parameter randomnessHint : forall (masterKey : masterKeyT)
-                                    (masterKeyValid : isValidMasterKey masterKey = true)
-                                    (rawData : rawDataT),
+  Parameter randomnessHint : forall (rawData : rawDataT),
                                systemRandomnessHintT.
 
   Parameter encrypt : forall (randomness : systemRandomnessT)
