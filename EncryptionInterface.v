@@ -24,9 +24,6 @@ Module EncryptionStringDataTypes <: EncryptionDataTypes.
   Definition systemRandomnessHintT := nat.
 End EncryptionStringDataTypes.
 
-Inductive EncryptionError systemRandomnessHintT systemRandomnessT :=
-| NotEnoughRandomness (hintUsed : systemRandomnessHintT) (randomnessReturned : systemRandomnessT).
-
 Inductive DecryptionError encryptedDataT :=
 | InvalidEncryptedData (data : encryptedDataT).
 
@@ -35,20 +32,23 @@ Module Type EncryptionAlgorithm (DataTypes : EncryptionDataTypes).
 
   Parameter isValidMasterKey : masterKeyT -> bool.
 
-  Parameter encrypt : forall (getRandomness : systemRandomnessHintT -> systemRandomnessT)
+  Parameter randomnessHint : forall (masterKey : masterKeyT)
+                                    (masterKeyValid : isValidMasterKey masterKey = true)
+                                    (rawData : rawDataT),
+                               systemRandomnessHintT.
+
+  Parameter encrypt : forall (randomness : systemRandomnessT)
                              (masterKey : masterKeyT)
                              (masterKeyValid : isValidMasterKey masterKey = true)
                              (rawData : rawDataT),
-                        encryptedDataT + EncryptionError systemRandomnessHintT systemRandomnessT.
+                        encryptedDataT.
 
   Parameter decrypt : forall (masterKey : masterKeyT)
                              (masterKeyValid : isValidMasterKey masterKey = true)
                              (encryptedData : encryptedDataT),
                         rawDataT + DecryptionError encryptedDataT.
 
-  Axiom is_retraction : forall getRandomness masterKey masterKeyValid rawData,
-                          match encrypt getRandomness masterKey masterKeyValid rawData with
-                            | inl enc => decrypt masterKey masterKeyValid enc = inl rawData
-                            | inr _ => True
-                          end.
+  Axiom is_retraction : forall randomness masterKey masterKeyValid rawData,
+                          let enc := encrypt randomness masterKey masterKeyValid rawData in
+                          decrypt masterKey masterKeyValid enc = inl rawData.
 End EncryptionAlgorithm.
