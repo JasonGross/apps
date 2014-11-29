@@ -39,11 +39,15 @@ Module TrustedDecryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
     | dbSetMasterKey (key : masterKeyT)
     | dbDecrypt (encryptedData : encryptedDataT) (tag : dataTagT).
 
-    Inductive dbOutput :=
-    | dbDecrypted (data : rawDataT) (tag : dataTagT)
+    Inductive dbErrorOutput :=
     | dbErrorInvalidData (data : encryptedDataT) (tag : dataTagT)
     | dbErrorInvalidMasterKey (key : masterKeyT) (pf : Algorithm.isValidMasterKey key = false)
     | dbErrorNoMasterKey.
+
+    Inductive dbEventOutput :=
+    | dbDecrypted (data : rawDataT) (tag : dataTagT).
+
+    Definition dbOutput := (dbErrorOutput + dbEventOutput)%type.
 
     Context (world : Type)
             (handle : dbOutput -> action world).
@@ -51,31 +55,41 @@ Module TrustedDecryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
     Definition initState : DecryptBoxState :=
       {| masterKey := None |}.
 
-    Definition decryptBoxLoopBody
-               (decryptBoxLoop : DecryptBoxState -> process dbInput world)
+    Definition decryptBoxLoopPreBody
                (st : DecryptBoxState)
-    : dbInput -> action world * process dbInput world
+    : dbInput -> option dbOutput * DecryptBoxState
       := fun i =>
            match i with
 
              | dbSetMasterKey key
                => (if Algorithm.isValidMasterKey key as isValid return Algorithm.isValidMasterKey key = isValid -> _
-                   then fun pf => (id,
-                                   decryptBoxLoop {| masterKey := Some (exist _ key pf) |})
-                   else fun pf => (handle (@dbErrorInvalidMasterKey key pf),
-                                   decryptBoxLoop {| masterKey := None |})) eq_refl
+                   then fun pf => (None,
+                                   {| masterKey := Some (exist _ key pf) |})
+                   else fun pf => (Some (inl (@dbErrorInvalidMasterKey key pf)),
+                                   {| masterKey := None |})) eq_refl
 
              | dbDecrypt data tag
                => (match st.(masterKey) with
-                     | None => handle dbErrorNoMasterKey
+                     | None => Some (inl dbErrorNoMasterKey)
                      | Some (exist key pf)
                        => match Algorithm.decrypt key pf data with
-                            | inl rawData => handle (dbDecrypted rawData tag)
-                            | inr InvalidEncryptedData => handle (dbErrorInvalidData data tag)
+                            | inl rawData => Some (inr (dbDecrypted rawData tag))
+                            | inr InvalidEncryptedData => Some (inl (dbErrorInvalidData data tag))
                           end
                    end,
-                   decryptBoxLoop st)
+                   st)
            end.
+
+    Definition decryptBoxLoopBody {T}
+               (decryptBoxLoop : DecryptBoxState -> T)
+               (st : DecryptBoxState)
+    : dbInput -> action world * T
+      := fun i => let outs := fst (decryptBoxLoopPreBody st i) in
+                  (match outs with
+                     | None => id
+                     | Some out => handle out
+                   end,
+                   decryptBoxLoop (snd (decryptBoxLoopPreBody st i))).
 
     CoFixpoint decryptBoxLoop (st : DecryptBoxState) :=
       Step (decryptBoxLoopBody decryptBoxLoop st).

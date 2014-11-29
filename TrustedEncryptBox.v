@@ -47,12 +47,16 @@ Module TrustedEncryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
     | ebSystemRandomness (randomness : systemRandomnessT) (tag : rawDataT * dataTagT)
     | ebEncrypt (unencryptedData : rawDataT) (tag : dataTagT).
 
-    Inductive ebOutput :=
-    | ebRequestSystemRandomness (howMuch : systemRandomnessHintT) (tag : rawDataT * dataTagT)
-    | ebEncrypted (data : encryptedDataT) (tag : dataTagT)
+    Inductive ebErrorOutput :=
     | ebErrorNotEnoughRandomness (howMuchWanted : systemRandomnessHintT) (randomnessGiven : systemRandomnessT)
     | ebErrorInvalidMasterKey (key : masterKeyT) (pf : Algorithm.isValidMasterKey key = false)
     | ebErrorNoMasterKey.
+
+    Inductive ebEventOutput :=
+    | ebRequestSystemRandomness (howMuch : systemRandomnessHintT) (tag : rawDataT * dataTagT)
+    | ebEncrypted (data : encryptedDataT) (tag : dataTagT).
+
+    Definition ebOutput := (ebErrorOutput + ebEventOutput)%type.
 
     Context (world : Type)
             (handle : ebOutput -> action world).
@@ -60,32 +64,42 @@ Module TrustedEncryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
     Definition initState : EncryptBoxState :=
       {| masterKey := None |}.
 
-    Definition encryptBoxLoopBody
-               (encryptBoxLoop : EncryptBoxState -> process ebInput world)
+    Definition encryptBoxLoopPreBody
                (st : EncryptBoxState)
-    : ebInput -> action world * process ebInput world
+    : ebInput -> option ebOutput * EncryptBoxState
       := fun i =>
            match i with
 
              | ebSetMasterKey key
                => (if Algorithm.isValidMasterKey key as isValid return Algorithm.isValidMasterKey key = isValid -> _
-                   then fun pf => (id,
-                                   encryptBoxLoop {| masterKey := Some (exist _ key pf) |})
-                   else fun pf => (handle (@ebErrorInvalidMasterKey key pf),
-                                   encryptBoxLoop {| masterKey := None |})) eq_refl
+                   then fun pf => (None,
+                                   {| masterKey := Some (exist _ key pf) |})
+                   else fun pf => (Some (inl (@ebErrorInvalidMasterKey key pf)),
+                                   {| masterKey := None |})) eq_refl
 
              | ebSystemRandomness randomness (rawData, tag)
                => (match st.(masterKey) with
-                     | None => handle ebErrorNoMasterKey
+                     | None => Some (inl ebErrorNoMasterKey)
                      | Some (exist key pf)
-                       => handle (ebEncrypted (Algorithm.encrypt randomness key pf rawData) tag)
+                       => Some (inr (ebEncrypted (Algorithm.encrypt randomness key pf rawData) tag))
                    end,
-                   encryptBoxLoop st)
+                   st)
 
              | ebEncrypt rawData tag
                => let hint := Algorithm.randomnessHint rawData in
-                  (handle (ebRequestSystemRandomness hint (rawData, tag)), encryptBoxLoop st)
+                  (Some (inr (ebRequestSystemRandomness hint (rawData, tag))), st)
            end.
+
+    Definition encryptBoxLoopBody {T}
+               (encryptBoxLoop : EncryptBoxState -> T)
+               (st : EncryptBoxState)
+    : ebInput -> action world * T
+      := fun i => let outs := fst (encryptBoxLoopPreBody st i) in
+                  (match outs with
+                     | None => id
+                     | Some out => handle out
+                   end,
+                   encryptBoxLoop (snd (encryptBoxLoopPreBody st i))).
 
     CoFixpoint encryptBoxLoop (st : EncryptBoxState) :=
       Step (encryptBoxLoopBody encryptBoxLoop st).
