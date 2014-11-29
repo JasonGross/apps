@@ -24,6 +24,9 @@ Module EncryptionStringDataTypes <: EncryptionDataTypes.
   Definition systemRandomnessHintT := nat.
 End EncryptionStringDataTypes.
 
+Inductive EncryptionError systemRandomnessHintT systemRandomnessT :=
+| NotEnoughRandomness (howMuchWanted : systemRandomnessHintT) (randomnessGiven : systemRandomnessT).
+
 Inductive DecryptionError :=
 | InvalidEncryptedData.
 
@@ -39,7 +42,7 @@ Module Type EncryptionAlgorithm (DataTypes : EncryptionDataTypes).
                              (masterKey : masterKeyT)
                              (masterKeyValid : isValidMasterKey masterKey = true)
                              (rawData : rawDataT),
-                        encryptedDataT.
+                        encryptedDataT + EncryptionError systemRandomnessHintT systemRandomnessT.
 
   Parameter decrypt : forall (masterKey : masterKeyT)
                              (masterKeyValid : isValidMasterKey masterKey = true)
@@ -48,5 +51,8 @@ Module Type EncryptionAlgorithm (DataTypes : EncryptionDataTypes).
 
   Axiom is_retraction : forall randomness masterKey masterKeyValid rawData,
                           let enc := encrypt randomness masterKey masterKeyValid rawData in
-                          decrypt masterKey masterKeyValid enc = inl rawData.
+                          match enc with
+                            | inl enc' => decrypt masterKey masterKeyValid enc' = inl rawData
+                            | inr _ => True
+                          end.
 End EncryptionAlgorithm.
