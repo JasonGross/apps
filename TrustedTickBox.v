@@ -100,9 +100,9 @@ Set Implicit Arguments.
 
 <<
 
-                         ┌───────────────┐     Notify Change       ┌───────────────────┐
-                         │ initial state │───────────────────────> │ initially waiting │
-                         │     no data   │  Fire: Request Update   │      on data      │
+              Tick mod X ┌───────────────┐     Notify Change       ┌───────────────────┐
+              ┌───────── │ initial state │───────────────────────> │ initially waiting │ ───┐ Tick mod X
+              └────────> │     no data   │  Fire: Request Update   │      on data      │ <──┘
                          └───────────────┘                         └───────────────────┘
                                         ^                                   │
                                         |                                   │
@@ -169,9 +169,9 @@ Section trustedTickBox.
   Variable dataT : Type.
 
   Inductive TickBoxPreState :=
-  | NoData
-  | InitiallyWaitingOnData
-  | HaveData (data : dataT) (ticks : nat) (publishesSinceLastChange : option nat)
+  | NoData (ticks : nat)
+  | InitiallyWaitingOnData (ticks : nat)
+  | HaveData (ticks : nat) (data : dataT) (publishesSinceLastChange : option nat)
   | WaitingOnData (ticks : nat) (publishesSinceLastChange : option nat)
   | WaitingOnTicks (ticks : nat) (publishesSinceLastChange : option nat).
 
@@ -262,7 +262,7 @@ for field0, ty0 in fields:
           (handle : tbOutput -> action world).
 
   Definition initState : TickBoxState :=
-    {| curData := NoData;
+    {| curData := NoData 0;
        publishInterval := 0;
        publishDuration := ∞;
        waitBeforeUpdateInterval := 0;
@@ -291,6 +291,10 @@ for field0, ty0 in fields:
   Definition enoughTransmissions (publishesSinceLastChange : nat) (st : TickBoxState) : bool :=
     negb (publishesSinceLastChange <=? st.(publishDuration)).
 
+  Definition ticksMod (ticks : nat) (st : TickBoxState)
+  : nat
+    := modulo ticks st.(publishInterval).
+
   Definition tickBoxLoopPreBody
              (st : TickBoxState)
   : tbInput -> (list tbOutput) * TickBoxState
@@ -311,11 +315,11 @@ for field0, ty0 in fields:
            | inl (tbSetPublishPrecision val), _
              => (nil, set_publishPrecision st val)
 
-           | inr tbNotifyChange, NoData
-             => ((inr tbRequestDataUpdate)::nil, set_curData st InitiallyWaitingOnData)
+           | inr tbNotifyChange, NoData ticks
+             => ((inr tbRequestDataUpdate)::nil, set_curData st (InitiallyWaitingOnData ticks))
 
-           | inr tbNotifyChange, HaveData data ticks publishesSinceLastChange
-             => (nil, set_curData st (HaveData data ticks None))
+           | inr tbNotifyChange, HaveData ticks data publishesSinceLastChange
+             => (nil, set_curData st (HaveData ticks data None))
 
            | inr tbNotifyChange, WaitingOnData ticks publishesSinceLastChange
              => (nil, set_curData st (WaitingOnData ticks None))
@@ -323,33 +327,33 @@ for field0, ty0 in fields:
            | inr tbNotifyChange, WaitingOnTicks ticks publishesSinceLastChange
              => (nil, set_curData st (WaitingOnTicks ticks None))
 
-           | inr tbNotifyChange, InitiallyWaitingOnData
+           | inr tbNotifyChange, InitiallyWaitingOnData ticks
              => (nil, st)
 
-           | inr (tbValueReady data), InitiallyWaitingOnData
-             => (nil, set_curData st (HaveData data 0 (Some 0)))
+           | inr (tbValueReady data), InitiallyWaitingOnData ticks
+             => (nil, set_curData st (HaveData ticks data (Some 0)))
 
            | inr (tbValueReady data), WaitingOnData ticks publishesSinceLastChange
-             => (nil, set_curData st (HaveData data ticks publishesSinceLastChange))
+             => (nil, set_curData st (HaveData ticks data publishesSinceLastChange))
 
            | inr (tbValueReady data), HaveData _ _ _
              => ((inl (tbWarnInvalidEvent st.(curData) (tbValueReady data)))::nil, st)
 
-           | inr (tbValueReady data), NoData
+           | inr (tbValueReady data), NoData ticks
              => ((inl (tbWarnInvalidEvent st.(curData) (tbValueReady data)))::nil, st)
 
            | inr (tbValueReady data), WaitingOnTicks _ _
              => ((inl (tbWarnInvalidEvent st.(curData) (tbValueReady data)))::nil, st)
 
-           | inr (tbTick ticksSinceLastTbTick), NoData
-             => (nil, st)
+           | inr (tbTick ticksSinceLastTbTick), NoData ticks
+             => (nil, set_curData st (NoData (ticksMod (ticks + ticksSinceLastTbTick) st)))
 
-           | inr (tbTick ticksSinceLastTbTick), InitiallyWaitingOnData
-             => (nil, st)
+           | inr (tbTick ticksSinceLastTbTick), InitiallyWaitingOnData ticks
+             => (nil, set_curData st (InitiallyWaitingOnData (ticksMod (ticks + ticksSinceLastTbTick) st)))
 
-           | inr (tbTick ticksSinceLastTbTick), HaveData data ticks publishesSinceLastChange
+           | inr (tbTick ticksSinceLastTbTick), HaveData ticks data publishesSinceLastChange
              => let ticks' := ticksSinceLastTbTick + ticks in
-                let st' := set_curData st (HaveData data ticks' publishesSinceLastChange) in
+                let st' := set_curData st (HaveData ticks' data publishesSinceLastChange) in
                 let publishesSinceLastChange' := match publishesSinceLastChange with
                                                    | None => 0
                                                    | Some n => n + 1
@@ -360,8 +364,8 @@ for field0, ty0 in fields:
                                 else actions) in
                 (actions,
                  (if enoughTransmissions publishesSinceLastChange' st'
-                  then (set_curData st NoData)
-                  else (set_curData st (WaitingOnTicks 0 (Some publishesSinceLastChange')))))
+                  then (set_curData st (NoData (ticksMod ticks' st')))
+                  else (set_curData st (WaitingOnTicks (ticksMod ticks' st') (Some publishesSinceLastChange')))))
 
            | inr (tbTick ticksSinceLastTick), WaitingOnTicks ticks publishesSinceLastChange
              => let ticks' := ticksSinceLastTick + ticks in
