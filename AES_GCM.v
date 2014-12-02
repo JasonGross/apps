@@ -1,14 +1,160 @@
 Set Implicit Arguments.
 
-(* AES with 128-bit key *)
-
-Section AES.
+Module Util.
 
   Require Import String.
   Open Scope string_scope.
   Require Import List.
   Import ListNotations.
   Open Scope list_scope.
+
+  (* functional programming utilities *)
+
+  Require Import Program.Basics.
+
+  Infix "@" := compose (at level 40) : prog_scope.
+
+  Definition apply {A B} (f : A -> B) x := f x.
+  Infix "$" := apply (at level 85, right associativity) : prog_scope.
+
+  Definition flip A B C (f : A -> B -> C) b a := f a b.
+
+  Open Scope prog_scope.
+
+  (* option utilities *)
+
+  Fixpoint msum {A} (ls : list (option A)) : option A :=
+    match ls with
+      | Some a :: _ => Some a
+      | None :: ls => msum ls
+      | nil => None
+    end.
+
+  Definition default A def (o : option A) : A :=
+    match o with
+      | Some a => a
+      | None => def
+    end.
+
+  Require Import Ascii.
+  Require Import Bool.
+  Open Scope bool_scope.
+  Require Import NArith.
+  Open Scope N_scope.
+  Open Scope nat_scope.
+
+  (* string/ascii utilities *)
+  
+  (* if ch in in range [a, b], return (Some (ch - a)) *)
+  Definition N_of_ascii_in (a b ch: ascii) : option N :=
+    (let asc := N_of_ascii ch in
+     let ascA := N_of_ascii a in
+     let ascB := N_of_ascii b in
+     if (ascA <=? asc) && (asc <=? ascB) then
+       Some (asc - ascA)
+     else
+       None
+    )%N.
+
+  Fixpoint str_to_list (str : string) :=
+    match str with
+      | String c s => c :: str_to_list s
+      | _ => nil
+    end.
+
+  (* list utilities *)
+
+  Definition flat {A} (ls : list (list A)) := flat_map id ls.
+
+  Definition sum A (zero : A) (add : A -> A -> A) (ls : list A) : A := fold_left add ls zero.
+    
+  Fixpoint repeat A (a : A) n :=
+    match n with
+      | 0 => nil
+      | S n => a :: repeat a n
+    end.
+
+  Definition left_shift A n (ls : list A) := skipn n ls ++ firstn n ls.
+
+  Fixpoint map2 A B C (f : A -> B -> C) ls1 ls2 :=
+    match ls1, ls2 with
+      | a :: ls1, b :: ls2 => f a b :: map2 f ls1 ls2
+      | _, _ => nil
+    end.
+
+  Fixpoint mapi' base {A B} (f : nat -> A -> B) (ls : list A) : list B :=
+    match ls with
+      | x :: xs => f base x :: mapi' (S base) f xs
+      | nil => nil
+    end.
+
+  Definition mapi {A B} := @mapi' 0 A B.
+
+  (* a specialize version of fold_left for [begin,begin+1,...,begin+len-1] *)
+  Fixpoint iter_range A (f : A -> nat -> A) begin len init :=
+    match len with
+      | 0 => init
+      | S n' => iter_range f (S begin) n' (f init begin)
+    end.
+
+  Definition iter A f := @iter_range A f 0.
+
+  (* f (...) (begin+len-1) :: ... :: f (f init begin) (begin+1) :: f init begin :: init_res *)
+  Definition iter_range_collect_rev A (f : A -> nat -> A) begin len init init_res: list A :=
+    snd (iter_range 
+           (fun p n => 
+              let old := fst p in 
+              let ls := snd p in 
+              let new := f old n in
+              (new, new :: ls))
+           begin len (init, init_res)).
+
+  Definition iter_range_collect A f begin len (init : A) init_res := rev (iter_range_collect_rev f begin len init (rev init_res)).
+
+  Definition iter_collect A f n := @iter_range_collect A f 0 n .
+
+  (* a special version of map for [begin; begin+1; ...; begin+len-1] *)
+  Fixpoint for_range A begin len (f : nat -> A) :=
+    match len with
+      | 0 => []
+      | S n => f begin :: for_range (S begin) n f
+    end.
+
+  Definition for_n A len := @for_range A 0 len.
+
+  (* slicing *)
+  Fixpoint slice' (count : nat) A (width : nat) (ls : list A) : list (list A) :=
+    match count with
+      | 0 => nil
+      | S count => firstn width ls :: slice' count width (skipn width ls)
+    end.
+
+  Require Import NPeano.
+
+  Definition slice A (width : nat) (ls : list A) : list (list A) :=
+    slice' (length ls / width) width ls.
+
+  Definition mapi_every A (width : nat) (f : nat -> list A -> list A) (ls : list A) : list A :=
+    flat (mapi f (slice width ls)).
+
+  Definition map_every A n f := @mapi_every A n (fun _ e => f e).
+
+End Util.
+
+Import Util.
+
+(* AES with 128-bit key *)
+
+Section AES.
+
+  Require Import Arith NArith NPeano Ascii String List.
+  Import ListNotations.
+  Open Scope N.
+  Open Scope nat.
+  Open Scope string.
+  Open Scope list.
+
+  (* bitvec is in LSB-first format *)
 
   Definition bitvec := list bool.
   
@@ -20,11 +166,11 @@ Section AES.
 
   Definition byte := bitvec.
 
-  Definition get_slice A (vec : list A) start len := firstn len (skipn start vec).
+  Definition get_slice A (vec : list A) begin len := firstn len (skipn begin vec).
 
   Definition get (width : nat) (vec : bitvec) (idx : nat) := get_slice vec (width * idx) width.
 
-  Definition set_slice A (vec : list A) start value := firstn start vec ++ value ++ skipn (start + length value) vec.
+  Definition set_slice A (vec : list A) begin value := firstn begin vec ++ value ++ skipn (begin + length value) vec.
 
   Definition set (width : nat) (vec : bitvec) (idx : nat) value := set_slice vec (width * idx) value.
 
@@ -34,22 +180,48 @@ Section AES.
 
   Definition key_schedule_t := b352.
 
-  (* a specialize version of fold_left for [0,1,...,n-1] *)
-  Fixpoint iter' i A (f : A -> nat -> A) n init :=
-    match n with
-      | 0 => init
-      | S n' => iter' (S i) f n' (f init i)
+  Definition zeros := repeat false.
+
+  Definition to_length len (vec : bitvec) : bitvec := firstn len vec ++ zeros (len - length vec).
+
+  Fixpoint of_pos (p : positive) : bitvec :=
+    match p with
+      | xH => [true]
+      | xI p => true :: of_pos p
+      | xO p => false :: of_pos p
     end.
 
-  Definition iter := iter' 0.
+  Definition bitvec_of_N (n : N) : byte := 
+    match n with
+      | N0 => [false]
+      | Npos p => of_pos p
+    end.
 
-  Definition parse_hex (str : string) : bitvec.
-    admit.
-  Defined.
+  Definition byte_of_N (n : N) : byte := 
+    to_length 8 (bitvec_of_N n).
 
-  Coercion parse_hex : string >-> bitvec.
+  Definition of_nat (n : nat) : byte := byte_of_N (N.of_nat n).
+  Coercion of_nat : nat >-> byte.
 
-  Definition s_box : list byte := map parse_hex
+  Fixpoint to_nat (vec : bitvec) : nat := 
+    match vec with
+      | nil => 0
+      | b :: vec => if b then 1 else 0 + 2 * to_nat vec
+    end.
+
+  Definition N_of_hex_ascii (ch : ascii) : N := default 0%N $ msum $ map (fun p => N_of_ascii_in (fst p) (snd p) ch) [("0", "9"); ("A", "F"); ("a", "f")]%char.
+
+  Definition bitvec4_of_hex_ascii := to_length 4 @ bitvec_of_N @ N_of_hex_ascii.
+
+  Arguments rev {A} _.
+
+  Definition bitvec_of_hex := flat @ map bitvec4_of_hex_ascii @ rev @ str_to_list.
+
+  Definition byte_of_hex : string -> byte := to_length 8 @ bitvec_of_hex.
+
+  Coercion byte_of_hex : string >-> byte.
+
+  Definition s_box : list byte := map byte_of_hex
   [
     "63"; "7C"; "77"; "7B"; "F2"; "6B"; "6F"; "C5"; "30"; "01"; "67"; "2B"; "FE"; "D7"; "AB"; "76";
     "CA"; "82"; "C9"; "7D"; "FA"; "59"; "47"; "F0"; "AD"; "D4"; "A2"; "AF"; "9C"; "A4"; "72"; "C0";
@@ -69,7 +241,7 @@ Section AES.
     "8C"; "A1"; "89"; "0D"; "BF"; "E6"; "42"; "68"; "41"; "99"; "2D"; "0F"; "B0"; "54"; "BB"; "16"
   ].
 
-  Definition inv_s_box : list byte := map parse_hex
+  Definition inv_s_box : list byte := map byte_of_hex
   [
     "52"; "09"; "6A"; "D5"; "30"; "36"; "A5"; "38"; "BF"; "40"; "A3"; "9E"; "81"; "F3"; "D7"; "FB";
     "7C"; "E3"; "39"; "82"; "9B"; "2F"; "FF"; "87"; "34"; "8E"; "43"; "44"; "C4"; "DE"; "E9"; "CB";
@@ -89,89 +261,23 @@ Section AES.
     "17"; "2B"; "04"; "7E"; "BA"; "77"; "D6"; "26"; "E1"; "69"; "14"; "63"; "55"; "21"; "0C"; "7D"
   ].
 
-  Definition RC : list byte := map parse_hex
+  Definition RC : list byte := map byte_of_hex
   [ 
     "01"; "02"; "04"; "08"; "10"; "20"; "40"; "80"; "1b"; "36" 
   ].
 
-  Require Import Program.Basics.
-  Infix "@" := compose (at level 40).
-  
-  Require Import NArith.
-
-  (* everything is in LSB-first format *)
-
-  Fixpoint repeat A (a : A) n :=
-    match n with
-      | 0 => nil
-      | S n => a :: repeat a n
-    end.
-
-  Definition zeros := repeat false.
-
-  Definition bitvec_to_byte (vec : bitvec) : bitvec := firstn 8 vec ++ zeros (8 - length vec).
-
-  Fixpoint of_pos (p : positive) : bitvec :=
-    match p with
-      | xH => [true]
-      | xI p => true :: of_pos p
-      | xO p => false :: of_pos p
-    end.
-
-  Definition of_N (n : N) : byte := 
-    bitvec_to_byte (match n with
-             | N0 => [false]
-             | Npos p => of_pos p
-           end).
-
-  Definition of_nat (n : nat) : byte := of_N (N.of_nat n).
-  Coercion of_nat : nat >-> byte.
-
-  Fixpoint to_nat (vec : bitvec) : nat := 
-    match vec with
-      | nil => 0
-      | b :: vec => if b then 1 else 0 + 2 * to_nat vec
-    end.
-
   Definition list_get (ls : list byte) idx := nth idx ls 0.
-
-  Definition slice A (width : nat) (ls : list A) : list (list A).
-    admit.
-  Qed.
-
-  Fixpoint mapi' base A B (f : nat -> A -> B) (ls : list A) : list B :=
-    match ls with
-      | x :: xs => f base x :: mapi' (S base) f xs
-      | nil => nil
-    end.
-
-  Definition mapi := mapi' 0.
-
-  Definition flat A (ls : list (list A)) := flat_map id ls.
-
-  Definition mapi_every A (width : nat) (f : nat -> list A -> list A) (ls : list A) : list A :=
-    flat (mapi f (slice width ls)).
-
-  Definition map_every A n f := @mapi_every A n (fun _ e => f e).
 
   Definition map_byte (f : byte -> byte) (vec : bitvec) : bitvec := map_every 8 f vec.
 
   Definition sub_byte (b : byte) := list_get s_box (to_nat b).
 
-  Definition sub_bytes := map_byte sub_byte.
+  Definition sub_bytes := map sub_byte.
 
   Definition get_byte := get 8.
   Definition set_byte := set 8.
 
-  Definition left_shift n (vec : bitvec) := skipn n vec ++ firstn n vec.
-
-  Definition left_shift_byte := left_shift 8.
-
-  Fixpoint map2 A B C (f : A -> B -> C) ls1 ls2 :=
-    match ls1, ls2 with
-      | a :: ls1, b :: ls2 => f a b :: map2 f ls1 ls2
-      | _, _ => nil
-    end.
+  Definition left_shift_byte := @left_shift bool 8.
 
   Definition bit_xor (a b : bool) : bool :=
     match a, b with
@@ -201,47 +307,65 @@ Section AES.
     let w3' := w2' + w3 in
     flat [w0'; w1'; w2'; w3'].
 
-  Definition iter_collect A (f : A -> nat -> A) n init : list A :=
-    rev (snd (iter 
-                (fun p n => 
-                   let old := fst p in 
-                   let ls := snd p in 
-                   let new := f old n in
-                   (new, new :: ls))
-                n (init, []))).
-
-  Definition key_schedule : key_schedule_t := flat (iter_collect gen_round_key 10 key).
+  Definition key_schedule : key_schedule_t := flat (iter_collect gen_round_key 10 key [key]).
 
   Definition get_round_key (n : nat) : b128 := get 128 key_schedule n.
 
-  Definition mx_mul A (prod : A -> A -> A) (a : list A) (m n : nat) (b : list A) (r : nat) : list A.
-    admit.
-  Qed.
+  Definition matrix A := list (list A).
 
-  Definition shift_rows (text : b128) := mapi_every 32 (fun n row => left_shift (8 * n) row) text.
+  Arguments map {A B} _ _.
 
-  Definition mix_matrix : list byte := map of_nat
+  Definition trans_mx A def (mx : matrix A) (m n : nat) : matrix A :=
+    for_n n (fun j => 
+      flip map mx (fun row =>
+        nth j row def)).
+
+  Definition to_row_major_mx A (m n : nat) (ls : list A) : matrix A := slice n ls.
+
+  Definition to_col_major_mx A def (m n : nat) (ls : list A) : matrix A := trans_mx def (to_row_major_mx n m ls) n m.
+
+  Definition of_row_major_mx A (mx : matrix A) (m n : nat) : list A := flat mx.
+
+  Definition of_col_major_mx A def (mx : matrix A) (m n : nat) : list A := of_row_major_mx (trans_mx def mx m n) n m.
+
+  Definition mx_mul A (def : A) (add mul : A -> A -> A) (a : matrix A) (m n : nat) (b : matrix A) (r : nat) : matrix A :=
+    let b := trans_mx def b n r in
+    flip mapi a (fun i arow =>
+      flip mapi b (fun j bcol =>
+        sum def add (map2 mul arow bcol))).                
+
+  Definition shift_rows (mx : matrix byte) := mapi (fun n row => left_shift n row) mx.
+
+  Definition mix_matrix : matrix byte := to_row_major_mx 4 4 (map of_nat
   [ 
     2; 3; 1; 1;
     1; 2; 3; 1;
     1; 1; 2; 3;
     3; 1; 1; 2
-  ].
+  ]).
 
   Definition gf8_mul (a b : bitvec) : bitvec.
     admit.
   Defined.
 
-  Definition mix_rows (text : b128) := flat (mx_mul gf8_mul mix_matrix 4 4 (slice 8 text) 4).
+  Definition mix_rows (mx : matrix byte) := @mx_mul byte 0 xor gf8_mul mix_matrix 4 4 mx 4.
 
   Definition add_round_key (text : b128) (round_key : b128) := text + round_key.
 
-  Definition round (text : b128) (round_key : b128) :=
-    let text := sub_bytes text in
-    let text := shift_rows text in
-    let text := mix_rows text in
-    add_round_key text round_key.
+  Definition round (bits : b128) (round_key : b128) :=
+    let bytes := slice 8 bits in
+    let bytes := sub_bytes bytes in
+    let mx := @to_col_major_mx byte 0 4 4 bytes in
+    let mx := shift_rows mx in
+    let mx := mix_rows mx in
+    let bytes := @of_col_major_mx byte 0 mx 4 4 in
+    let bits := flat bytes in
+    add_round_key bits round_key.
   
-  Definition encrypt round_n (plaintext : b128) := iter (fun acc n => round acc (get_round_key (S n))) round_n (add_round_key plaintext (get_round_key 0)).
+  Definition encrypt round_n (plaintext : b128) := 
+    iter 
+      (fun acc n => round acc (get_round_key (S n))) 
+      round_n 
+      (add_round_key plaintext (get_round_key 0)).
 
 End AES.
