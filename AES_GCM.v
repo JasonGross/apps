@@ -74,7 +74,7 @@ Module Util.
       | S n => a :: repeat a n
     end.
 
-  Definition left_shift A n (ls : list A) := skipn n ls ++ firstn n ls.
+  Definition lcshift A n (ls : list A) := skipn n ls ++ firstn n ls.
 
   Fixpoint map2 A B C (f : A -> B -> C) ls1 ls2 :=
     match ls1, ls2 with
@@ -277,7 +277,7 @@ Section AES.
   Definition get_byte := get 8.
   Definition set_byte := set 8.
 
-  Definition left_shift_byte := @left_shift bool 8.
+  Definition lcshift_byte := @lcshift bool 8.
 
   Definition bit_xor (a b : bool) : bool :=
     match a, b with
@@ -292,7 +292,7 @@ Section AES.
   Open Scope bitvec_scope.
 
   Definition g n (w : key_t) :=
-    let w := left_shift_byte w in
+    let w := lcshift_byte w in
     let w := map_byte sub_byte w in
     set_byte w 0 (get_byte w 0 + list_get RC n).
     
@@ -334,7 +334,7 @@ Section AES.
       flip mapi b (fun j bcol =>
         sum def add (map2 mul arow bcol))).                
 
-  Definition shift_rows (mx : matrix byte) := mapi (fun n row => left_shift n row) mx.
+  Definition shift_rows (mx : matrix byte) := mapi (fun n row => lcshift n row) mx.
 
   Definition mix_matrix : matrix byte := to_row_major_mx 4 4 (map of_nat
   [ 
@@ -344,9 +344,35 @@ Section AES.
     3; 1; 1; 2
   ]).
 
-  Definition gf8_mul (a b : bitvec) : bitvec.
-    admit.
-  Defined.
+  Definition of_bin_ascii (ch : ascii) :=
+    (match ch with
+       | "0" => false
+       | _ => true
+     end)%char.
+
+  Definition of_bin_str := map of_bin_ascii @ str_to_list.
+
+  Definition f231 A B C D (f : A -> B -> C -> D) b c a := f a b c.
+
+  Definition rshift n (v : bitvec) := zeros n ++ firstn (length v - n) v.
+
+  Arguments fst {A B} _.
+  Arguments fold_left {A B} _ _ _.
+
+  Definition gf_mul n R (a b : bitvec) : bitvec :=
+    fst $ f231 fold_left b (zeros n, a) (fun st bi =>
+      let (Z, V) := st in
+      let Z := if bi then
+                 Z + V
+               else
+                 Z in
+      let V := if nth (n - 1) V false then
+                 rshift 1 V + R
+               else
+                 rshift 1 V in
+      (Z, V)).
+    
+  Definition gf8_mul (a b : byte) : byte := gf_mul 8 (of_bin_str "11011") a b.
 
   Definition mix_rows (mx : matrix byte) := @mx_mul byte 0 xor gf8_mul mix_matrix 4 4 mx 4.
 
@@ -362,10 +388,10 @@ Section AES.
     let bits := flat bytes in
     add_round_key bits round_key.
   
-  Definition encrypt round_n (plaintext : b128) := 
+  Definition encrypt (plaintext : b128) := 
     iter 
       (fun acc n => round acc (get_round_key (S n))) 
-      round_n 
+      10
       (add_round_key plaintext (get_round_key 0)).
 
 End AES.
