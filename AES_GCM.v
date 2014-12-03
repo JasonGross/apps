@@ -13,6 +13,7 @@ Module Util.
   Require Import Program.Basics.
 
   Infix "@" := compose (at level 40) : prog_scope.
+  Infix ">>" := (flip compose) (at level 40) : prog_scope.
 
   Definition apply {A B} (f : A -> B) x := f x.
   Infix "$" := apply (at level 85, right associativity) : prog_scope.
@@ -43,25 +44,6 @@ Module Util.
   Open Scope N_scope.
   Open Scope nat_scope.
 
-  (* string/ascii utilities *)
-  
-  (* if ch in in range [a, b], return (Some (ch - a)) *)
-  Definition N_of_ascii_in (a b ch: ascii) : option N :=
-    (let asc := N_of_ascii ch in
-     let ascA := N_of_ascii a in
-     let ascB := N_of_ascii b in
-     if (ascA <=? asc) && (asc <=? ascB) then
-       Some (asc - ascA)
-     else
-       None
-    )%N.
-
-  Fixpoint str_to_list (str : string) :=
-    match str with
-      | String c s => c :: str_to_list s
-      | _ => nil
-    end.
-
   (* list utilities *)
 
   Definition flat {A} (ls : list (list A)) := flat_map id ls.
@@ -75,6 +57,18 @@ Module Util.
     end.
 
   Definition lcshift A n (ls : list A) := skipn n ls ++ firstn n ls.
+
+  Fixpoint prependToAll A (sep : A) ls :=
+    match ls with
+      | nil => nil
+      | x :: xs => sep :: x :: prependToAll sep xs
+    end.
+
+  Definition intersperse A (sep : A) ls :=
+    match ls with
+      | nil => nil
+      | x :: xs => x :: prependToAll sep xs
+    end.
 
   Fixpoint map2 A B C (f : A -> B -> C) ls1 ls2 :=
     match ls1, ls2 with
@@ -139,6 +133,33 @@ Module Util.
 
   Definition map_every A n f := @mapi_every A n (fun _ e => f e).
 
+  (* string/ascii utilities *)
+  
+  (* if ch in in range [a, b], return (Some (ch - a + base)) *)
+  Definition N_of_ascii_in (a b : ascii) (base : N) (ch: ascii) : option N :=
+    (let asc := N_of_ascii ch in
+     let ascA := N_of_ascii a in
+     let ascB := N_of_ascii b in
+     if (ascA <=? asc) && (asc <=? ascB) then
+       Some (asc - ascA + base)
+     else
+       None
+    )%N.
+
+  Fixpoint str_to_list (str : string) :=
+    match str with
+      | String c s => c :: str_to_list s
+      | _ => nil
+    end.
+
+  Fixpoint list_to_str ls : string :=
+    match ls with
+      | c :: ls => String c (list_to_str ls)
+      | nil => EmptyString
+    end.
+
+  Definition intersperse_every n sep := str_to_list >> slice n >> intersperse (str_to_list sep) >> flat >> list_to_str.
+
 End Util.
 
 Import Util.
@@ -153,8 +174,6 @@ Section AES.
   Open Scope nat.
   Open Scope string.
   Open Scope list.
-
-  (* bitvec is in LSB-first format *)
 
   Definition bitvec := list bool.
   
@@ -182,44 +201,89 @@ Section AES.
 
   Definition zeros := repeat false.
 
-  Definition to_length len (vec : bitvec) : bitvec := firstn len vec ++ zeros (len - length vec).
+  Definition of_bin_ascii (ch : ascii) :=
+    (match ch with
+       | "0" => false
+       | _ => true
+     end)%char.
 
-  Fixpoint of_pos (p : positive) : bitvec :=
+  Definition bitvec_of_bin_str : string -> bitvec := map of_bin_ascii @ str_to_list.
+
+  Coercion bitvec_of_bin_str : string >-> bitvec.
+
+  Notation t := true.
+  Notation f := false.
+
+  (* bitvec is in LSB-first format *)
+
+  Definition trunc_pad_to len (vec : bitvec) : bitvec := firstn len vec ++ zeros (len - length vec).
+
+  Fixpoint bitvec_of_pos (p : positive) : bitvec :=
     match p with
       | xH => [true]
-      | xI p => true :: of_pos p
-      | xO p => false :: of_pos p
+      | xI p => true :: bitvec_of_pos p
+      | xO p => false :: bitvec_of_pos p
     end.
 
   Definition bitvec_of_N (n : N) : byte := 
     match n with
       | N0 => [false]
-      | Npos p => of_pos p
+      | Npos p => bitvec_of_pos p
     end.
 
-  Definition byte_of_N (n : N) : byte := 
-    to_length 8 (bitvec_of_N n).
-
-  Definition of_nat (n : nat) : byte := byte_of_N (N.of_nat n).
-  Coercion of_nat : nat >-> byte.
-
-  Fixpoint to_nat (vec : bitvec) : nat := 
+  Fixpoint bitvec_to_nat (vec : bitvec) : nat := 
     match vec with
       | nil => 0
-      | b :: vec => if b then 1 else 0 + 2 * to_nat vec
+      | b :: vec => (if b then 1 else 0) + 2 * bitvec_to_nat vec
     end.
 
-  Definition N_of_hex_ascii (ch : ascii) : N := default 0%N $ msum $ map (fun p => N_of_ascii_in (fst p) (snd p) ch) [("0", "9"); ("A", "F"); ("a", "f")]%char.
+  Goal bitvec_to_nat "1100" = 3. reflexivity. Qed.
 
-  Definition bitvec4_of_hex_ascii := to_length 4 @ bitvec_of_N @ N_of_hex_ascii.
+  (* byte is in MSB-first format *)
 
   Arguments rev {A} _.
 
-  Definition bitvec_of_hex := flat @ map bitvec4_of_hex_ascii @ rev @ str_to_list.
+  Definition byte_of_N (n : N) : byte := 
+    rev $ trunc_pad_to 8 (bitvec_of_N n).
 
-  Definition byte_of_hex : string -> byte := to_length 8 @ bitvec_of_hex.
+  Definition byte_of_nat (n : nat) : byte := byte_of_N (N.of_nat n).
+  Coercion byte_of_nat : nat >-> byte.
+  
+  Goal byte_of_nat 3 = "00000011" :> bitvec. reflexivity. Qed.
 
-  Coercion byte_of_hex : string >-> byte.
+  Definition byte_to_nat (b : byte) : nat := bitvec_to_nat $ rev b.
+
+  Definition N_of_hex_ascii (ch : ascii) : N := default 0%N $ msum $ map (fun x : ascii * ascii * N => let (p, base) := x in N_of_ascii_in (fst p) (snd p) base ch) [("0", "9", 0%N); ("A", "F", 10%N); ("a", "f", 10%N)]%char.
+
+  Definition map_byte (f : byte -> byte) (vec : bitvec) : bitvec := map_every 8 f vec.
+
+  (* hex string is in bytewise-MSB-first format *)
+  Definition halfbyte_of_hex_ascii := rev @ trunc_pad_to 4 @ bitvec_of_N @ N_of_hex_ascii.
+
+  Definition remove_space (ch : ascii) :=
+    match ch with
+      | " "%char => false
+      | _ => true
+    end.
+
+  Definition bitvec_of_hex : string -> bitvec := flat @ map halfbyte_of_hex_ascii @ filter remove_space @ str_to_list.
+
+  Definition left_trunc_pad_to n := rev @ trunc_pad_to n @ rev.
+
+  Definition byte_of_hex : string -> byte := left_trunc_pad_to 8 @ bitvec_of_hex.
+
+  Definition halfbyte_to_hex (v : bitvec) : ascii :=
+    let n := bitvec_to_nat (rev v) in
+    let n0 := nat_of_ascii "0" in
+    let nA := nat_of_ascii "A" in
+    if n <? 10 then
+      ascii_of_nat (n0 + n)
+    else
+      ascii_of_nat (nA + n - 10).
+
+  Goal halfbyte_to_hex "1011" = "B"%char. reflexivity. Qed.
+
+  Definition bitvec_to_hex := list_to_str @ map halfbyte_to_hex @ slice 4.
 
   Definition s_box : list byte := map byte_of_hex
   [
@@ -241,6 +305,11 @@ Section AES.
     "8C"; "A1"; "89"; "0D"; "BF"; "E6"; "42"; "68"; "41"; "99"; "2D"; "0F"; "B0"; "54"; "BB"; "16"
   ].
 
+  Goal nth 1 s_box 0 = "01111100" :> bitvec. reflexivity. Qed.
+  Goal nth 16 s_box 0 = "11001010" :> bitvec. reflexivity. Qed.
+  Goal bitvec_to_hex (nth 1 s_box 0) = "7C". reflexivity. Qed.
+  Goal bitvec_to_hex (nth 16 s_box 0) = "CA". reflexivity. Qed.
+  
   Definition inv_s_box : list byte := map byte_of_hex
   [
     "52"; "09"; "6A"; "D5"; "30"; "36"; "A5"; "38"; "BF"; "40"; "A3"; "9E"; "81"; "F3"; "D7"; "FB";
@@ -268,9 +337,7 @@ Section AES.
 
   Definition list_get (ls : list byte) idx := nth idx ls 0.
 
-  Definition map_byte (f : byte -> byte) (vec : bitvec) : bitvec := map_every 8 f vec.
-
-  Definition sub_byte (b : byte) := list_get s_box (to_nat b).
+  Definition sub_byte (b : byte) := list_get s_box (byte_to_nat b).
 
   Definition sub_bytes := map sub_byte.
 
@@ -336,21 +403,13 @@ Section AES.
 
   Definition shift_rows (mx : matrix byte) := mapi (fun n row => lcshift n row) mx.
 
-  Definition mix_matrix : matrix byte := to_row_major_mx 4 4 (map of_nat
+  Definition mix_matrix : matrix byte := to_row_major_mx 4 4 (map byte_of_nat
   [ 
     2; 3; 1; 1;
     1; 2; 3; 1;
     1; 1; 2; 3;
     3; 1; 1; 2
   ]).
-
-  Definition of_bin_ascii (ch : ascii) :=
-    (match ch with
-       | "0" => false
-       | _ => true
-     end)%char.
-
-  Definition of_bin_str := map of_bin_ascii @ str_to_list.
 
   Definition f231 A B C D (f : A -> B -> C -> D) b c a := f a b c.
 
@@ -372,9 +431,9 @@ Section AES.
                  rshift 1 V in
       (Z, V)).
     
-  Definition gf8_mul (a b : byte) : byte := gf_mul 8 (of_bin_str "11011") a b.
+  Definition gf8_byte_mul (a b : byte) : byte := gf_mul 8 "11011" (rev a) (rev b).
 
-  Definition mix_rows (mx : matrix byte) := @mx_mul byte 0 xor gf8_mul mix_matrix 4 4 mx 4.
+  Definition mix_rows (mx : matrix byte) := @mx_mul byte 0 xor gf8_byte_mul mix_matrix 4 4 mx 4.
 
   Definition add_round_key (text : b128) (round_key : b128) := text + round_key.
 
@@ -395,3 +454,10 @@ Section AES.
       (add_round_key plaintext (get_round_key 0)).
 
 End AES.
+
+Definition p1 := bitvec_of_hex "32 43 f6 a8 88 5a 30 8d 31 31 98 a2 e0 37 07 34".
+Definition k1 := bitvec_of_hex "2b 7e 15 16 28 ae d2 a6 ab f7 15 88 09 cf 4f 3c".
+Definition c1 := encrypt k1 p1.
+
+Eval compute in (intersperse_every 8 " " $ bitvec_to_hex $ key_schedule k1).
+Eval compute in (bitvec_to_hex c1).
