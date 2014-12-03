@@ -11,22 +11,20 @@ Set Implicit Arguments.
 (** ** Summary
 
     We implement a box that presents the interface of a server storing
-    unencrypted data.  It handles "compare and set" and "get"
-    requests, and raises "compare and set failed locally (returns
-    current state)", "compare and set succeeded locally", and "remote
-    conflict (returns desired state, current state, and common
-    ancestor)", and "updated current state".  The "compare and set"
-    operation accepts keys of any type, which allows the client to
-    correlate "compare and set" requests with their responses.
-    Additionally, we provide read access to the current state of the
-    remote server, and an "are we fully synced?"  boolean.
+    unencrypted data.  It handles "set" and "get eventually" requests,
+    and raises "value changed" and "remote corrupted".
+
+    We assume the remote server has a "compare and set" event; we use
+    this to be robust to update messages lost over the network.  It is
+    the client's responsibility to set up the tick-box intervals so
+    that we get an updated server value sufficiently close to our
+    sending that CAS succeeds.
 
     We maintain the following internal state:
     - [remoteStateE] - state we think the remote server has right now (encrypted)
-    - [remoteStateD] - state we think the remote server has right now (decrypted)
     - [localStateD] - state we want the remote server to have (decrypted)
 
-    We implement the following straight-forward events:
+    We implement the following events:
 
     Client Events:
 
@@ -34,20 +32,9 @@ Set Implicit Arguments.
       update from the server, we request an update from our remote
       server, hidden behind a tick box.
 
-    - [ssbClientGetRemoteState of getRemoteKeyT] - When the client
-      wants to know the state of the remote server, we return
-      [remoteStateD].
-
-    - [ssbClientAskIsFullySynced of fullySyncedKeyT] - When the client
-      wants to know if we are fully synced, we return [localStateD =
-      remoteStateD].
-
-    - [ssbClientCompareAndSet of (curD newD : rawDataT) (key :
-      clientCASKeyT)] - When the client requests a compare and set, we
-      set [localStateD] to [newD] iff it was previously [curD].  On
-      success, we raise [ssbCASLocalSuccess key], and on failure, we
-      raise [ssbCASLocalFailure key localStateD].  We then schedule a
-      server CAS.
+    - [ssbClientSet (newD : rawDataT)] - When the client requests a
+      SET, we set [localStateD] to [newD], and schedule a remote
+      update.
 
     Server Events:
 
@@ -55,33 +42,17 @@ Set Implicit Arguments.
       provides us with an update, we decrypt it to [newD].  If we
       fail, we inform the client that the remote server got messed up.
       If we succeed, and it is different from [localStateD], we set
-      [localStateD] and [remoteStateD] to [newD], and push an update
-      to the client.  In all cases, we set [remoteStateE] to [newE].
+      [localStateD] to [newD], and push an update to the client.  In
+      all cases, we set [remoteStateE] to [newE].
 
     Timed events:
 
     - When it's time to do a server CAS, we compute an encryption
       [localStateE] of [localStateD].  We then tell the server that if
       it's state is [remoteStateE], it should replace it with
-      [localStateE].
-
-      - On success, we set [remoteStateE] to [localStateE] and
-        [remoteStateD] to [localStateD] (values all taken at time of
-        encryption).
-
-      - On failure (current state is [remoteStateE']), we attempt to
-        decrypt to [remoteStateD'].
-
-        - On decryption succeess, we set [remoteStateE] to
-          [remoteStateE'], and [remoteStateD] to [remoteStateD'].  We
-          then alert the client that there was a remote conflict
-          between [remoteStateD] (taken at time of encryption) and
-          [remoteStateD'], when trying to update [remoteStateD] to
-          [localStateD] (both taken at time of encryption).
-
-        - On decryption failure, set [remoteStateE] to
-          [remoteStateE'], clear [remoteStateD], and inform the client
-          that the remote server got messed up.
+      [localStateE].  The server is expected to respond with
+      [ssbServerGotUpdate] with it's updated state on both failure and
+      success.
 
   *)
 
@@ -92,29 +63,17 @@ Module TrustedServerSyncBox (DataTypes : EncryptionDataTypes) (Algorithm : Encry
   Module Import TDB := TrustedDecryptBox DataTypes Algorithm.
 
   Section trustedServerSyncBox.
-    Variables getRemoteKeyT fullySyncedKeyT clientCASKeyT : Type.
     Variable d_eqb : rawDataT -> rawDataT -> bool.
 
     Record ServerSyncBoxPreState
       := { localStateD : rawDataT;
-           remoteStateD : option rawDataT;
            remoteStateE : option encryptedDataT }.
-
-    (** snapshot of state at time of encryption request *)
-    Let encryptDataTagT := ServerSyncBoxPreState.
-    Let pre_cas_state := encryptDataTagT.
-    (** (curE, newE) *)
-    Let cas_state := ((encryptedDataT * encryptedDataT) * pre_cas_state)%type.
-    Inductive ssbDecryptTagT :=
-    | ssbDTGotUpdate (dataE : encryptedDataT)
-    | ssbDTCASFailure (frozenState : ServerSyncBoxPreState) (remoteE : encryptedDataT)
-    | ssbDTCASSuccess (frozenState : ServerSyncBoxPreState) (remoteE : encryptedDataT).
 
     Record ServerSyncBoxState :=
       {
         ssbState :> ServerSyncBoxPreState;
         ssbGetUpdateState : TickBoxState unit;
-        ssbCASState : TickBoxState cas_state;
+        ssbCASState : TickBoxState encryptedDataT;
         ssbEncryptState : EncryptBoxState;
         ssbDecryptState : DecryptBoxState
       }.
@@ -148,7 +107,7 @@ for field0, ty0 in fields:
             ssbEncryptState := st.(ssbEncryptState);
             ssbDecryptState := st.(ssbDecryptState) |}.
 
-    Definition set_ssbCASState (st : ServerSyncBoxState) (v : TickBoxState cas_state)
+    Definition set_ssbCASState (st : ServerSyncBoxState) (v : TickBoxState encryptedDataT)
       := {| ssbState := st.(ssbState);
             ssbGetUpdateState := st.(ssbGetUpdateState);
             ssbCASState := v;
@@ -177,36 +136,25 @@ for field0, ty0 in fields:
     Inductive ssbEventInput :=
     | ssbTick (addedTickCount : nat)
     | ssbClientGetUpdate
-    | ssbClientGetRemoteState (key : getRemoteKeyT)
-    | ssbClientAskIsFullySynced (key : fullySyncedKeyT)
-    | ssbClientCompareAndSet (key : clientCASKeyT) (curD newD : rawDataT)
+    | ssbClientSet (newD : rawDataT)
     | ssbServerGotUpdate (newE : encryptedDataT)
-    | ssbServerCASFailure (key : pre_cas_state) (claimedCurE realCurE newE : encryptedDataT)
-    | ssbServerCASSuccess (key : pre_cas_state) (newE : encryptedDataT)
-    | ssbSystemRandomness (randomness : systemRandomnessT) (tag : rawDataT * encryptDataTagT).
-
+    | ssbSystemRandomness (randomness : systemRandomnessT) (tag : rawDataT).
 
     Definition ssbInput := (ssbConfigInput + ssbEventInput)%type.
 
     Inductive ssbWarningOutput :=
     | ssbGetUpdateWarning (_ : tbWarningOutput unit)
-    | ssbCASWarning (_ : tbWarningOutput cas_state)
+    | ssbCASWarning (_ : tbWarningOutput encryptedDataT)
     | ssbEncryptError (_ : ebErrorOutput)
-    | ssbDecryptError (_ : dbErrorOutput ssbDecryptTagT)
+    | ssbDecryptError (_ : dbErrorOutput unit)
     | ssbWarningInvalidTransition (ev : ssbInput) (st : ServerSyncBoxState)
-    | ssbErrorNoCASBeforeGetUpdate.
+    | ssbWarningPushBeforePull.
 
     Inductive ssbEventOutput :=
     | ssbClientGotUpdate (data : rawDataT)
-    | ssbClientGotRemoteState (key : getRemoteKeyT) (data : option rawDataT)
-    | ssbClientRespondIsFullySynced (key : fullySyncedKeyT) (_ : bool)
-    | ssbClientCASSuccess (key : clientCASKeyT) (newD : rawDataT)
-    | ssbClientCASFailure (key : clientCASKeyT) (claimedCurD realCurD newD : rawDataT)
-    | ssbClientRemoteConflict (localD remoteD : rawDataT) (ancestorD : option rawDataT)
-    | ssbClientRemoteUpdateSuccess (oldD newD : rawDataT)
     | ssbServerGetUpdate
-    | ssbServerCAS (key : pre_cas_state) (curE newE : encryptedDataT)
-    | ssbRequestSystemRandomness (howMuch : systemRandomnessHintT) (tag : rawDataT * encryptDataTagT).
+    | ssbServerCAS (curE newE : encryptedDataT)
+    | ssbRequestSystemRandomness (howMuch : systemRandomnessHintT) (tag : rawDataT).
 
     Definition ssbOutput := (ssbWarningOutput + ssbEventOutput)%type.
 
@@ -217,7 +165,6 @@ for field0, ty0 in fields:
     Definition initState : ServerSyncBoxState :=
       {|
         ssbState := {| localStateD := initRawData;
-                       remoteStateD := None;
                        remoteStateE := None |};
         ssbGetUpdateState := TrustedTickBox.initState _;
         ssbCASState := TrustedTickBox.initState _;
@@ -294,47 +241,56 @@ for field0, ty0 in fields:
 
     Definition handle_ssbEncrypt
                (st : ServerSyncBoxState)
-    : option (ebOutput encryptDataTagT) * EncryptBoxState -> list ssbOutput * ServerSyncBoxState.
+    : option (ebOutput unit) * EncryptBoxState -> list ssbOutput * ServerSyncBoxState.
     Proof.
       refine (fun i =>
                 let st' := set_ssbEncryptState st (snd i) in
-                (match fst i with
+                match fst i with
+
                    | Some (inl warning)
-                     => inl (ssbEncryptError warning)::nil
+                     => ((inl (ssbEncryptError warning))::nil, st')
+
                    | Some (inr (ebRequestSystemRandomness howMuch tag))
-                     => (inr (ssbRequestSystemRandomness howMuch tag))::nil
-                   | Some (inr (ebEncrypted newE frozenState))
-                     => match frozenState.(remoteStateE) with
-                          | Some curE
-                            => (inr (ssbServerCAS frozenState curE newE))::nil
-                          | None => (inl ssbErrorNoCASBeforeGetUpdate)::nil
-                        end
-                   | None => nil
-                 end,
-                 st')).
+                     => ((inr (ssbRequestSystemRandomness howMuch (fst tag)))::nil, st')
+
+                   | Some (inr (ebEncrypted newE _))
+                     => let upd := tickBoxLoopPreBody
+                                     (st'.(ssbCASState))
+                                     (inr (tbValueReady newE)) in
+                        (match fst upd as u return u = fst upd -> _ with
+                           | nil => fun _ => nil
+                           | inl warning::nil => fun _ => (inl (ssbCASWarning warning))::nil
+                           | _ => fun H => match (_ H) : False with end
+                         end eq_refl,
+                         set_ssbCASState st' (snd upd))
+
+                   | None => (nil, st')
+                 end);
+      handle_eq_false.
     Defined.
 
     Definition handle_ssbCAS'
                (st : ServerSyncBoxState)
-    : tbOutput cas_state * TickBoxState cas_state -> list ssbOutput * ServerSyncBoxState.
+    : tbOutput encryptedDataT * TickBoxState encryptedDataT -> list ssbOutput * ServerSyncBoxState.
     Proof.
       refine (fun i =>
                 let st' := set_ssbCASState st (snd i) in
                 match fst i with
                   | inl warning
                     => (inl (ssbCASWarning warning)::nil, st')
+
                   | inr (tbPublishUpdate val)
-                    => (inr ssbServerGetUpdate::nil, st')
+                    => (match st'.(remoteStateE) with
+                          | Some curE
+                            => inr (ssbServerCAS curE val)
+                          | None => inl ssbWarningPushBeforePull
+                        end::nil,
+                        st')
 
                   | inr tbRequestDataUpdate
-
-                    (** request an encryption of the current state, and
-                      snapshot the current state so we can decide what
-                      to do when we get back the encrypted value *)
-
                     => let encResult := encryptBoxLoopPreBody
-                                          (st.(ssbEncryptState))
-                                          (ebEncrypt (st.(localStateD)) (st.(ssbState))) in
+                                          (st'.(ssbEncryptState))
+                                          (ebEncrypt (st.(localStateD)) tt) in
                        handle_ssbEncrypt st' encResult
                 end).
     Defined.
@@ -344,49 +300,21 @@ for field0, ty0 in fields:
 
     Definition handle_ssbDecrypt
                (st : ServerSyncBoxState)
-    : option (dbOutput ssbDecryptTagT) * DecryptBoxState -> list ssbOutput * ServerSyncBoxState.
+    : option (dbOutput unit) * DecryptBoxState -> list ssbOutput * ServerSyncBoxState.
     Proof.
       refine (fun i =>
                 let st' := set_ssbDecryptState st (snd i) in
                 match fst i with
 
                   | Some (inl warning)
-                    => (inl (ssbDecryptError warning)::nil,
-                        set_ssbState
-                          st'
-                          ({| localStateD := st'.(localStateD);
-                              remoteStateD := None;
-                              remoteStateE :=
-                                (match warning with
-                                   | dbErrorInvalidData dataE _
-                                     => Some dataE
-                                   | _ => None
-                                 end) |}))
+                    => (inl (ssbDecryptError warning)::nil, st)
 
-                  | Some (inr (dbDecrypted dataD (ssbDTGotUpdate dataE)))
+                  | Some (inr (dbDecrypted dataD _))
                     => ((if d_eqb dataD st.(localStateD)
                          then nil
                          else (inr (ssbClientGotUpdate dataD))::nil),
                         set_ssbState st' {| localStateD := dataD;
-                                            remoteStateD := Some dataD;
-                                            remoteStateE := Some dataE |})
-
-                  | Some (inr (dbDecrypted remoteD (ssbDTCASFailure frozenState dataE)))
-                    => ((inr (ssbClientRemoteConflict
-                                (frozenState.(localStateD)) (* local *)
-                                remoteD
-                                (frozenState.(remoteStateD)) (* ancestor *)))::nil,
-                        set_ssbState st' {| localStateD := remoteD;
-                                            remoteStateD := Some remoteD;
-                                            remoteStateE := Some dataE |})
-
-                  | Some (inr (dbDecrypted remoteD (ssbDTCASSuccess frozenState dataE)))
-                    => ((inr (ssbClientRemoteUpdateSuccess
-                                (frozenState.(localStateD)) (* oldD *)
-                                remoteD (* newD *)))::nil,
-                        set_ssbState st' {| localStateD := remoteD;
-                                            remoteStateD := Some remoteD;
-                                            remoteStateE := Some dataE |})
+                                            remoteStateE := st'.(remoteStateE) |})
 
                   | None => (nil, st')
 
@@ -447,58 +375,30 @@ for field0, ty0 in fields:
                             (st.(ssbGetUpdateState))
                             (inr (tbNotifyChange _)))
 
-                  | inr (ssbClientGetRemoteState key)
-                    => ((inr (ssbClientGotRemoteState key (st.(remoteStateD))))::nil, st)
-
-                  | inr (ssbClientAskIsFullySynced key)
-                    => let b := match st.(remoteStateD) with
-                                  | None => false
-                                  | Some remoteStateD' => d_eqb st.(localStateD) remoteStateD'
-                                end in
-                       ((inr (ssbClientRespondIsFullySynced key b))::nil, st)
-
-                  | inr (ssbClientCompareAndSet key curD newD)
-                    => if d_eqb st.(localStateD) curD
-                       then (let st' := set_ssbState
-                                          st
-                                          {| localStateD := newD;
-                                             remoteStateD := st.(remoteStateD);
-                                             remoteStateE := st.(remoteStateE) |} in
-                             let (ls0, st0) := handle_ssbCAS
-                                                 st'
-                                                 (tickBoxLoopPreBody
-                                                    (st'.(ssbCASState))
-                                                    (inr (tbNotifyChange _))) in
-                             ((inr (ssbClientCASSuccess key newD))::ls0, st0))
-                       else ((inr (ssbClientCASFailure key curD st.(localStateD) newD))::nil, st)
+                  | inr (ssbClientSet newD)
+                    => let st' := set_ssbState
+                                    st
+                                    {| localStateD := newD;
+                                       remoteStateE := st.(remoteStateE) |} in
+                       handle_ssbCAS
+                         st'
+                         (tickBoxLoopPreBody
+                            (st'.(ssbCASState))
+                            (inr (tbNotifyChange _)))
 
                   | inr (ssbServerGotUpdate dataE)
                     => handle_ssbDecrypt
                          st
                          (decryptBoxLoopPreBody
                             (st.(ssbDecryptState))
-                            (dbDecrypt dataE (ssbDTGotUpdate dataE)))
-
-                  | inr (ssbServerCASFailure frozenState claimedCurE realCurE newE)
-                    => handle_ssbDecrypt
-                         st
-                         (decryptBoxLoopPreBody
-                            (st.(ssbDecryptState))
-                            (dbDecrypt realCurE (ssbDTCASFailure frozenState realCurE)))
-
-                  | inr (ssbServerCASSuccess frozenState newE)
-                    => handle_ssbDecrypt
-                         st
-                         (decryptBoxLoopPreBody
-                            (st.(ssbDecryptState))
-                            (dbDecrypt newE (ssbDTCASSuccess frozenState newE)))
+                            (dbDecrypt dataE tt))
 
                   | inr (ssbSystemRandomness randomness tag)
                     => handle_ssbEncrypt
                          st
                          (encryptBoxLoopPreBody
                             (st.(ssbEncryptState))
-                            (ebSystemRandomness randomness tag))
+                            (ebSystemRandomness randomness (tag, tt)))
 
                 end).
     Defined.
