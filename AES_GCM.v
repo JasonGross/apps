@@ -1,182 +1,6 @@
 Set Implicit Arguments.
 
-Module Util.
-
-  Require Import String.
-  Open Scope string_scope.
-  Require Import List.
-  Import ListNotations.
-  Open Scope list_scope.
-
-  (* functional programming utilities *)
-
-  Require Import Program.Basics.
-
-  Infix "<<" := compose (at level 40) : prog_scope.
-  Infix ">>" := (flip compose) (at level 40) : prog_scope.
-
-  Definition apply {A B} (f : A -> B) x := f x.
-  Infix "$" := apply (at level 85, right associativity) : prog_scope.
-
-  Definition flip A B C (f : A -> B -> C) b a := f a b.
-
-  Open Scope prog_scope.
-
-  (* option utilities *)
-
-  Fixpoint msum {A} (ls : list (option A)) : option A :=
-    match ls with
-      | Some a :: _ => Some a
-      | None :: ls => msum ls
-      | nil => None
-    end.
-
-  Definition default A def (o : option A) : A :=
-    match o with
-      | Some a => a
-      | None => def
-    end.
-
-  Require Import Ascii.
-  Require Import Bool.
-  Open Scope bool_scope.
-  Require Import NArith.
-  Open Scope N_scope.
-  Open Scope nat_scope.
-
-  (* list utilities *)
-
-  Definition flat {A} (ls : list (list A)) := flat_map id ls.
-
-  Definition sum A (zero : A) (add : A -> A -> A) (ls : list A) : A := fold_left add ls zero.
-    
-  Fixpoint repeat A (a : A) n :=
-    match n with
-      | 0 => nil
-      | S n => a :: repeat a n
-    end.
-
-  Definition lcshift A n (ls : list A) := skipn n ls ++ firstn n ls.
-
-  Fixpoint prependToAll A (sep : A) ls :=
-    match ls with
-      | nil => nil
-      | x :: xs => sep :: x :: prependToAll sep xs
-    end.
-
-  Definition intersperse A (sep : A) ls :=
-    match ls with
-      | nil => nil
-      | x :: xs => x :: prependToAll sep xs
-    end.
-
-  Definition range A begin len (ls : list A) := firstn len (skipn begin ls).
-
-  Fixpoint map2 A B C (f : A -> B -> C) ls1 ls2 :=
-    match ls1, ls2 with
-      | a :: ls1, b :: ls2 => f a b :: map2 f ls1 ls2
-      | _, _ => nil
-    end.
-
-  Fixpoint mapi' base {A B} (f : nat -> A -> B) (ls : list A) : list B :=
-    match ls with
-      | x :: xs => f base x :: mapi' (S base) f xs
-      | nil => nil
-    end.
-
-  Definition mapi {A B} := @mapi' 0 A B.
-
-  (* a specialize version of fold_left for [begin,begin+1,...,begin+len-1] *)
-  Fixpoint iter_range A (f : A -> nat -> A) begin len init :=
-    match len with
-      | 0 => init
-      | S n' => iter_range f (S begin) n' (f init begin)
-    end.
-
-  Definition iter A f := @iter_range A f 0.
-
-  (* f (...) (begin+len-1) :: ... :: f (f init begin) (begin+1) :: f init begin :: init_res *)
-  Definition iter_range_collect_rev A (f : A -> nat -> A) begin len init init_res: list A :=
-    snd (iter_range 
-           (fun p n => 
-              let old := fst p in 
-              let ls := snd p in 
-              let new := f old n in
-              (new, new :: ls))
-           begin len (init, init_res)).
-
-  Definition iter_range_collect A f begin len (init : A) init_res := rev (iter_range_collect_rev f begin len init (rev init_res)).
-
-  Definition iter_collect A f n := @iter_range_collect A f 0 n .
-
-  (* a special version of map for [begin; begin+1; ...; begin+len-1] *)
-  Fixpoint for_range A begin len (f : nat -> A) :=
-    match len with
-      | 0 => []
-      | S n => f begin :: for_range (S begin) n f
-    end.
-
-  Definition for_n A len := @for_range A 0 len.
-
-  (* slicing *)
-  Fixpoint slice' (count : nat) A (width : nat) (ls : list A) : list (list A) :=
-    match count with
-      | 0 => nil
-      | S count => firstn width ls :: slice' count width (skipn width ls)
-    end.
-
-  Require Import NPeano.
-
-  Definition slice A (width : nat) (ls : list A) : list (list A) :=
-    let n := length ls / width in 
-    let res := slice' n width ls in
-    let len := width * n in
-    match length ls - len with
-      | 0 => res
-      | _ => res ++ [skipn len ls]
-    end.
-
-  Definition mapi_every A (width : nat) (f : nat -> list A -> list A) (ls : list A) : list A :=
-    flat (mapi f (slice width ls)).
-
-  Definition map_every A n f := @mapi_every A n (fun _ e => f e).
-
-  (* string/ascii utilities *)
-  
-  (* if ch in in range [a, b], return (Some (ch - a + base)) *)
-  Definition N_of_ascii_in (a b : ascii) (base : N) (ch: ascii) : option N :=
-    (let asc := N_of_ascii ch in
-     let ascA := N_of_ascii a in
-     let ascB := N_of_ascii b in
-     if (ascA <=? asc) && (asc <=? ascB) then
-       Some (asc - ascA + base)
-     else
-       None
-    )%N.
-
-  Fixpoint str_to_list (str : string) :=
-    match str with
-      | String c s => c :: str_to_list s
-      | _ => nil
-    end.
-
-  Fixpoint list_to_str ls : string :=
-    match ls with
-      | c :: ls => String c (list_to_str ls)
-      | nil => EmptyString
-    end.
-
-  Definition intersperse_every n sep := str_to_list >> slice n >> intersperse (str_to_list sep) >> flat >> list_to_str.
-  
-  Definition sep := intersperse_every.
-
-  (* tactics *)
-
-  Ltac r := vm_compute; reflexivity.
-
-End Util.
-
-Import Util.
+Require Import FPUtil.
 
 (* AES with 128-bit key *)
 
@@ -354,8 +178,6 @@ Notation show := bitvec_to_hex.
 
 Goal (map_byte sub_byte $ hex "cf4f3c09") = hex "8a84eb01". r. Qed.
 
-Definition sub_bytes := map sub_byte.
-
 Definition get_byte := get 8.
 Definition set_byte := set 8.
 
@@ -436,13 +258,21 @@ Goal (mx_mul 0 plus mult test_mx 4 4 (trans_mx 0 test_mx 4 4) 4) = test_mx_mx'. 
 
 Definition shift_rows (mx : matrix byte) := mapi (fun n row => lcshift n row) mx.
 
-Definition mix_matrix : matrix byte := to_row_major_mx 4 4 (map byte_of_nat
+Definition mix_matrix : matrix byte := to_row_major_mx 4 4 $ map byte_of_nat
 [ 
   2; 3; 1; 1;
   1; 2; 3; 1;
   1; 1; 2; 3;
   3; 1; 1; 2
-]).
+].
+
+Definition inv_mix_matrix : matrix byte := to_row_major_mx 4 4 $ slice 8 $ flat $ map hex
+[
+  "0e 0b 0d 09";
+  "09 0e 0b 0d";
+  "0d 09 0e 0b";
+  "0b 0d 09 0e"
+].
 
 Definition f231 A B C D (f : A -> B -> C -> D) b c a := f a b c.
 
@@ -472,21 +302,20 @@ Definition mix_rows (mx : matrix byte) := @mx_mul byte 0 xor gf8_byte_mul mix_ma
 Definition add_round_key (text : b128) (round_key : b128) := text + round_key.
 
 Definition round (is_last : bool) (bits : b128) (round_key : b128) :=
-  let bytes := slice 8 bits in
-  let bytes := sub_bytes bytes in
-  let mx := @to_col_major_mx byte 0 4 4 bytes in
+  let mx := @to_col_major_mx byte 0 4 4 (slice 8 bits) in
+  let mx := map (map sub_byte) mx in
   let mx := shift_rows mx in
   let mx := if is_last then mx else mix_rows mx in
-  let bytes := @of_col_major_mx byte 0 mx 4 4 in
-  let bits := flat bytes in
-  add_round_key bits round_key.
+  let round_key_mx := @to_col_major_mx byte 0 4 4 (slice 8 round_key) in
+  let mx := map2 (map2 add_round_key) mx round_key_mx in 
+  flat (@of_col_major_mx byte 0 mx 4 4).
 
 Definition test_plain := hex "32 43 f6 a8 88 5a 30 8d 31 31 98 a2 e0 37 07 34".
 
 Definition test_r1 := hex "19 3d e3 be a0 f4 e2 2b 9a c6 8d 2a e9 f8 48 08".
 Goal test_plain + get_round_key test_key 0 = test_r1. r. Qed.
 Definition test_r1_after_sb := hex "d4 27 11 ae e0 bf 98 f1 b8 b4 5d e5 1e 41 52 30".
-Goal (slice 8 >> sub_bytes >> flat $ test_r1) = test_r1_after_sb. r. Qed.
+Goal (slice 8 >> map sub_byte >> flat $ test_r1) = test_r1_after_sb. r. Qed.
 Definition test_r1_after_sb_mx := map (map hex) [["D4"; "E0"; "B8"; "1E"]; ["27"; "BF"; "B4"; "41"]; ["11"; "98"; "5D"; "52"]; ["AE"; "F1"; "E5"; "30"]]. 
 Goal (slice 8 >> @to_col_major_mx byte 0 4 4 $ test_r1_after_sb) = test_r1_after_sb_mx. r. Qed.
 Definition test_r1_after_shift := map (map hex) [["D4"; "E0"; "B8"; "1E"]; ["BF"; "B4"; "41"; "27"]; ["5D"; "52"; "11"; "98"]; ["30"; "AE"; "F1"; "E5"]].
@@ -528,3 +357,31 @@ Definition test_plain5 := hex "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01".
 Definition test_key5 := hex "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00".
 Definition test_cipher5 := hex "58 e2 fc ce fa 7e 30 61 36 7f 1d 57 a4 e7 45 5a".
 Goal encrypt test_key5 test_plain5 = test_cipher5. r. Qed.
+
+Definition inv_shift_rows (mx : matrix byte) := mapi (fun n row => rcshift n row) mx.
+
+Definition inv_sub_byte (b : byte) := list_get inv_s_box (byte_to_nat b).
+
+Definition inv_mix_rows (mx : matrix byte) := @mx_mul byte 0 xor gf8_byte_mul inv_mix_matrix 4 4 mx 4.
+
+Definition inv_round (is_last : bool) (bits : b128) (round_key : b128) :=
+  let mx := @to_col_major_mx byte 0 4 4 (slice 8 bits) in
+  let mx := inv_shift_rows mx in
+  let mx := map (map inv_sub_byte) mx in
+  let round_key_mx := @to_col_major_mx byte 0 4 4 (slice 8 round_key) in
+  let mx := map2 (map2 add_round_key) mx round_key_mx in 
+  let mx := if is_last then mx else inv_mix_rows mx in
+  flat (@of_col_major_mx byte 0 mx 4 4).
+
+Definition decrypt (key : key_t) (ciphertext : b128) := 
+  let keys := slice 128 (key_schedule key) in
+  let get_key n := nth n keys (zeros 128) in
+  let after0 := add_round_key ciphertext (get_key 10) in
+  let after9 := fold_left (inv_round false) (rev $ range 1 9 keys) after0 in
+  inv_round true after9 (get_key 0).
+
+Goal decrypt test_key test_cipher = test_plain. r. Qed.
+Goal decrypt test_key2 test_cipher2 = test_plain2. r. Qed.
+Goal decrypt test_key3 test_cipher3 = test_plain3. r. Qed.
+Goal decrypt test_key4 test_cipher4 = test_plain4. r. Qed.
+Goal decrypt test_key5 test_cipher5 = test_plain5. r. Qed.
