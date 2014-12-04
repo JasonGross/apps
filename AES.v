@@ -6,10 +6,10 @@ Require Import FPUtil.
 
 Require Import Arith NArith NPeano Ascii String List.
 Import ListNotations.
-Open Scope N.
-Open Scope nat.
-Open Scope string.
-Open Scope list.
+Open Scope N_scope.
+Open Scope nat_scope.
+Open Scope string_scope.
+Open Scope list_scope.
 
 Definition bitvec := list bool.
 
@@ -42,57 +42,64 @@ Definition of_bin_ascii (ch : ascii) :=
    end)%char.
 
 Definition bitvec_of_bin_str : string -> bitvec := map of_bin_ascii << str_to_list.
-
 Coercion bitvec_of_bin_str : string >-> bitvec.
+Notation bin := bitvec_of_bin_str.
 
 Notation t := true.
 Notation f := false.
 
-(* bitvec is in LSB-first format *)
+(* trunc or padding zeros on the right *)
+Definition right_trunc_pad_to len (vec : bitvec) : bitvec := firstn len vec ++ zeros (len - length vec).
 
-Definition trunc_pad_to len (vec : bitvec) : bitvec := firstn len vec ++ zeros (len - length vec).
-
-Fixpoint bitvec_of_pos (p : positive) : bitvec :=
+(* convert positive to LSB-first bitvec *)
+Fixpoint lsb_of_pos (p : positive) : bitvec :=
   match p with
     | xH => [true]
-    | xI p => true :: bitvec_of_pos p
-    | xO p => false :: bitvec_of_pos p
+    | xI p => true :: lsb_of_pos p
+    | xO p => false :: lsb_of_pos p
   end.
 
-Definition bitvec_of_N (n : N) : byte := 
+Definition lsb_of_N (n : N) : byte := 
   match n with
     | N0 => [false]
-    | Npos p => bitvec_of_pos p
+    | Npos p => lsb_of_pos p
   end.
 
-Fixpoint bitvec_to_nat (vec : bitvec) : nat := 
+Fixpoint lsb_to_nat (vec : bitvec) : nat := 
   match vec with
     | nil => 0
-    | b :: vec => (if b then 1 else 0) + 2 * bitvec_to_nat vec
+    | b :: vec => (if b then 1 else 0) + 2 * lsb_to_nat vec
   end.
 
-Goal bitvec_to_nat "1100" = 3. r. Qed.
+Goal lsb_to_nat "1100" = 3. r. Qed.
 
 (* byte is in MSB-first format *)
 
 Arguments rev {A} _.
 
-Definition byte_of_N (n : N) : byte := 
-  rev $ trunc_pad_to 8 (bitvec_of_N n).
+Definition msb_to_nat := rev >> lsb_to_nat.
 
-Definition byte_of_nat (n : nat) : byte := byte_of_N (N.of_nat n).
+(* convert N to MSB-first bitvec *)
+Definition msb_of_N (width : nat) (n : N) : bitvec := 
+  rev $ right_trunc_pad_to width (lsb_of_N n).
+
+Definition msb_of_nat (width : nat) (n : nat) : bitvec := msb_of_N width (N.of_nat n).
+
+Definition byte_of_N (n : N) : byte := msb_of_N 8 n.
+
+Definition byte_of_nat (n : nat) : byte := msb_of_nat 8 n.
 Coercion byte_of_nat : nat >-> byte.
 
 Goal byte_of_nat 3 = "00000011" :> bitvec. r. Qed.
 
-Definition byte_to_nat (b : byte) : nat := bitvec_to_nat $ rev b.
+Definition byte_to_nat (b : byte) : nat := msb_to_nat b.
 
 Definition N_of_hex_ascii (ch : ascii) : N := default 0%N $ msum $ map (fun x : ascii * ascii * N => let (p, base) := x in N_of_ascii_in (fst p) (snd p) base ch) [("0", "9", 0%N); ("A", "F", 10%N); ("a", "f", 10%N)]%char.
 
 Definition map_byte (f : byte -> byte) (vec : bitvec) : bitvec := map_every 8 f vec.
 
 (* hex string is in bytewise-MSB-first format *)
-Definition halfbyte_of_hex_ascii := rev << trunc_pad_to 4 << bitvec_of_N << N_of_hex_ascii.
+Definition halfbyte_of_hex_ascii := rev << right_trunc_pad_to 4 << lsb_of_N << N_of_hex_ascii.
 
 Definition remove_space (ch : ascii) :=
   match ch with
@@ -102,12 +109,12 @@ Definition remove_space (ch : ascii) :=
 
 Definition bitvec_of_hex : string -> bitvec := flat << map halfbyte_of_hex_ascii << filter remove_space << str_to_list.
 
-Definition left_trunc_pad_to n := rev << trunc_pad_to n << rev.
+Definition left_trunc_pad_to n := rev << right_trunc_pad_to n << rev.
 
 Definition byte_of_hex : string -> byte := left_trunc_pad_to 8 << bitvec_of_hex.
 
 Definition halfbyte_to_hex (v : bitvec) : ascii :=
-  let n := bitvec_to_nat (rev v) in
+  let n := lsb_to_nat (rev v) in
   let n0 := nat_of_ascii "0" in
   let nA := nat_of_ascii "A" in
   if n <? 10 then
@@ -282,7 +289,7 @@ Arguments fst {A B} _.
 Arguments fold_left {A B} _ _ _.
 
 Definition gf_mul n R (a b : bitvec) : bitvec :=
-  let R := trunc_pad_to n R in
+  let R := right_trunc_pad_to n R in
   fst $ f231 fold_left b (zeros n, a) (fun st bi =>
     let (Z, V) := st in
     let Z := if bi then
