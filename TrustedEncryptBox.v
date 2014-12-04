@@ -81,7 +81,12 @@ Module TrustedEncryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
                => (match st.(masterKey) with
                      | None => Some (inl ebErrorNoMasterKey)
                      | Some (exist key pf)
-                       => Some (inr (ebEncrypted (Algorithm.encrypt randomness key pf rawData) tag))
+                       => match Algorithm.encrypt randomness key pf rawData with
+                            | inl enc
+                              => Some (inr (ebEncrypted enc tag))
+                            | inr (NotEnoughRandomness howMuchWanted randomnessGiven)
+                              => Some (inl (ebErrorNotEnoughRandomness howMuchWanted randomnessGiven))
+                          end
                    end,
                    st)
 
