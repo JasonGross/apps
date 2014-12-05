@@ -21,4 +21,6 @@ ExampleMBTARequester.v
 ExamplePwMgr.v
 ExamplePwMgr2.v
 FPUtil.v
+Bitvec.v
 AES.v
+GCM.v

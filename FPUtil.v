@@ -3,10 +3,10 @@
 Set Implicit Arguments.
 
 Require Import String.
-Open Scope string_scope.
+Local Open Scope string_scope.
 Require Import List.
 Import ListNotations.
-Open Scope list_scope.
+Local Open Scope list_scope.
 
 (* functional programming utilities *)
 
@@ -20,7 +20,7 @@ Infix "$" := apply (at level 85, right associativity) : prog_scope.
 
 Definition flip A B C (f : A -> B -> C) b a := f a b.
 
-Open Scope prog_scope.
+Local Open Scope prog_scope.
 
 (* option utilities *)
 
@@ -39,10 +39,10 @@ Definition default A def (o : option A) : A :=
 
 Require Import Ascii.
 Require Import Bool.
-Open Scope bool_scope.
+Local Open Scope bool_scope.
 Require Import NArith.
-Open Scope N_scope.
-Open Scope nat_scope.
+Local Open Scope N_scope.
+Local Open Scope nat_scope.
 
 (* list utilities *)
 
@@ -73,6 +73,13 @@ Definition intersperse A (sep : A) ls :=
   end.
 
 Definition range A begin len (ls : list A) := firstn len (skipn begin ls).
+
+Fixpoint forall2 A B (p : A -> B -> bool) ls1 ls2 :=
+  match ls1, ls2 with
+    | a :: ls1, b :: ls2 => p a b && forall2 p ls1 ls2
+    | nil, nil => true
+    | _, _ => false
+  end.
 
 Fixpoint map2 A B C (f : A -> B -> C) ls1 ls2 :=
   match ls1, ls2 with
