@@ -25,15 +25,6 @@ Module Type SerializableMergableMapInterface (E : SerializableOrderedType).
       Variable elt_to_string : elt -> string.
       Variable elt_from_string : string -> option elt.
 
-      Axiom to_from_string
-      : (forall s, match elt_from_string s with
-                     | None => True
-                     | Some x => elt_to_string x = s
-                   end)
-        -> forall s, match from_string elt_from_string s with
-                       | None => True
-                       | Some x => to_string elt_to_string x = s
-                     end.
       Axiom from_to_string
       : (forall x, elt_from_string (elt_to_string x) = Some x)
         -> forall x, from_string elt_from_string (to_string elt_to_string x) = Some x.

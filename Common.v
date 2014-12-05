@@ -1,3 +1,7 @@
+Require Import Coq.Lists.List Coq.Setoids.Setoid Coq.Program.Program.
+
+Set Implicit Arguments.
+
 Definition pull_if_dep {A B} (P : forall b : bool, A b -> B b) (a : A true) (a' : A false)
            (b : bool)
 : P b (if b as b return A b then a else a') =
@@ -129,3 +133,51 @@ Tactic Notation "unique" "pose" constr(defn) :=
     | [ H := defn |- _ ] => fail 1
     | _ => pose defn
   end.
+
+Lemma Some_inj {A} {a b : A} (H : Some a = Some b) : a = b.
+Proof.
+  congruence.
+Qed.
+
+Local Open Scope bool_scope.
+
+Lemma fold_left_andb_false {A} (f : A -> bool) (ls : list A)
+: fold_left (fun b x => b && f x) ls false = false.
+Proof.
+  induction ls; simpl; trivial.
+Qed.
+
+Lemma fold_left_andb_true_init {A} {f : A -> bool} {ls : list A} {b}
+: fold_left (fun b x => b && f x) ls b = true -> b = true.
+Proof.
+  destruct b; try reflexivity.
+  rewrite fold_left_andb_false; intro H; inversion H.
+Qed.
+
+Lemma fold_left_andb_true {A} (f : A -> bool) (ls : list A)
+: fold_left (fun b x => b && f x) ls true = true
+  <-> (forall x, List.In x ls -> f x = true).
+Proof.
+  induction ls; simpl.
+  { split; intros; tauto. }
+  { split; destruct_head iff; intros;
+    destruct_head or; subst;
+    repeat match goal with
+             | [ H : false = true |- _ ] => solve [ inversion H ]
+             | [ H : true = false |- _ ] => solve [ inversion H ]
+             | [ |- ?b = true ] => case_eq b; [ reflexivity | intro; exfalso ]
+             | [ H : fold_left _ ?ls false = true |- _ ] => rewrite fold_left_andb_false in H
+             | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+             | [ H : fold_left _ _ (?f ?x) = true |- _ ]
+               => let H' := fresh in
+                  pose proof (fold_left_andb_true_init H) as H';
+                    rewrite H' in *
+             | [ H : forall x, List.In _ _ -> _, H' : List.In _ _ |- _ ] => specialize (H _ H')
+             | [ H : forall x, _ = _ \/ List.In _ _ -> _ |- _ ]
+               => pose proof (H _ (or_introl eq_refl));
+                 pose proof (fun x H' => H x (or_intror H'));
+                 clear H
+             | [ H : ?a = true, H' : fold_left _ _ ?a = _ |- _ ] => rewrite H in H'
+             | _ => congruence
+           end. }
+Qed.
