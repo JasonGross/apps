@@ -9,6 +9,45 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
   Definition key := M.key.
   Definition t elt := M.t (nat * option elt).
 
+  Local Ltac add_facts :=
+    repeat match goal with
+             | _ => progress subst
+             | [ H : Some _ = None |- _ ] => solve [ inversion H ]
+             | [ H : None = Some _ |- _ ] => solve [ inversion H ]
+             | [ H : E.eq ?x ?y, H' : M.MapsTo ?x ?e ?m |- _ ]
+               => unique pose proof (M.MapsTo_1 H H')
+             | [ H : E.eq ?x ?y |- _ ]
+               => unique pose proof (E.eq_sym H)
+             | [ x : key |- _ ]
+               => unique pose proof (E.eq_refl x)
+             | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
+               => unique pose proof (E.eq_trans H H')
+             | [ H : E.eq ?x ?y, H' : context[M.add ?x ?e ?m] |- _ ]
+               => unique pose proof (M.add_1 m e H)
+             | [ H : M.MapsTo ?x ?e ?m |- _ ]
+               => unique pose proof (M.find_1 H)
+             | [ H : M.find ?x ?m = Some ?e |- _ ]
+               => unique pose proof (M.find_2 H)
+             | [ H : ?a = ?b |- _ ]
+               => unique pose proof (Logic.eq_sym H)
+             | [ H : ?a = ?b, H' : ?b = ?c |- _ ]
+               => unique pose proof (Logic.eq_trans H H')
+             | [ H : Some ?x = Some ?y |- _ ]
+               => unique pose proof (Some_inj H)
+             | [ H : (?x, ?y) = (?x', ?y') :> _ * _ |- _ ]
+               => unique pose proof (f_equal (@fst _ _) H : x = x')
+             | [ H : (?x, ?y) = (?x', ?y') :> _ * _ |- _ ]
+               => unique pose proof (f_equal (@snd _ _) H : y = y')
+             | [ H : ~E.eq ?x ?y |- _ ]
+               => unique pose proof ((fun H' => H (E.eq_sym H')) : ~E.eq y x)
+             | [ H : ~E.eq ?x ?y, H' : M.MapsTo ?y ?e (M.add ?x ?e' ?m) |- _ ]
+               => unique pose proof (M.add_3 H H')
+             | [ H : ~E.eq ?x ?y, H' : M.MapsTo ?y ?e ?m, H'' : appcontext[M.add ?x ?e' ?m] |- _ ]
+               => unique pose proof (M.add_2 e' H H')
+             | [ H : ~E.eq ?x ?y, H' : M.MapsTo ?y ?e ?m |- appcontext[M.add ?x ?e' ?m] ]
+               => unique pose proof (M.add_2 e' H H')
+           end.
+
   Section elt.
     Variable elt : Type.
 
@@ -55,10 +94,10 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     Definition map2 (f : option elt -> option elt' -> option elt'') (m : t elt) (m' : t elt') : t elt''
       := M.map2 (fun v1 v2 =>
                    match v1, v2 with
-                     | Some (gen1, v1'), Some (gen2, v2') => Some (max gen1 gen2, f v1' v2')
-                     | Some (gen1, v1'), None => Some (gen1, f v1' None)
-                     | None, Some (gen2, v2') => Some (gen2, f None v2')
-                     | None, None => Some (0, f None None)
+                     | Some (gen1, v1'), Some (gen2, v2') => option_map (pair (max gen1 gen2)) (option_map Some (f v1' v2'))
+                     | Some (gen1, v1'), None => option_map (pair gen1) (option_map Some (f v1' None))
+                     | None, Some (gen2, v2') => option_map (pair gen2) (option_map Some (f None v2'))
+                     | None, None => option_map (pair 0) (option_map Some (f None None))
                    end)
                 m m'.
 
@@ -69,6 +108,42 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
            | (a, None)::ls' => filter_some ls'
          end.
 
+    Local Ltac InA_filter_some_t :=
+      repeat match goal with
+               | _ => intro
+               | _ => progress subst
+               | _ => progress simpl in *
+               | _ => progress destruct_head prod
+               | _ => progress destruct_head option
+               | _ => assumption
+               | [ H : InA _ _ nil |- _ ] => solve [ inversion H ]
+               | [ H : InA _ _ (_::_) |- _ ] => inversion H; clear H
+               | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+               | _ => progress unfold not in *
+               | _ => solve [ left; eauto ]
+               | _ => solve [ right; eauto ]
+               | _ => solve [ exfalso; eauto ]
+             end.
+
+    Lemma InA_filter_some1 {A B} (eqP : forall B', A * B' -> A * B' -> Prop)
+          (H : forall a a' b b', eqP B (a, b) (a', b') -> eqP _ (a, Some b) (a', Some b'))
+          ls (a : A) (b : B)
+    : InA (@eqP B) (a, b) (filter_some ls)
+      -> InA (eqP (option B)) (a, Some b) ls.
+    Proof.
+      induction ls; InA_filter_some_t.
+    Qed.
+
+    Lemma InA_filter_some2 {A B} (eqP : forall B', A * B' -> A * B' -> Prop)
+          (H : forall a a' b b', eqP _ (a, Some b) (a', Some b') -> eqP B (a, b) (a', b'))
+          (H1 : forall a a' (b : B), ~eqP _ (a, Some b) (a', None))
+          ls (a : A) (b : B)
+    : InA (eqP (option B)) (a, Some b) ls
+      -> InA (@eqP B) (a, b) (filter_some ls).
+    Proof.
+      induction ls; InA_filter_some_t.
+    Qed.
+
     Lemma InA_filter_some {A B} (eqP : forall B', A * B' -> A * B' -> Prop)
           (H : forall a a' b b', eqP _ (a, Some b) (a', Some b') <-> eqP B (a, b) (a', b'))
           (H1 : forall a a' (b : B), ~eqP _ (a, Some b) (a', None))
@@ -76,18 +151,128 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     : InA (@eqP B) (a, b) (filter_some ls)
       <-> InA (eqP (option B)) (a, Some b) ls.
     Proof.
-      induction ls; simpl.
-      { split; intro H'; inversion H'. }
-      { destruct_head prod.
-        destruct_head option.
-        { split; intro H'; inversion H'; subst;
-          solve [ left; apply H; assumption
-                | right; apply IHls; assumption ]. }
-        { split; intro H'; inversion H'; subst;
-          solve [ left; apply H; assumption
-                | right; apply IHls; assumption
-                | exfalso; eapply H1; eassumption
-                | apply IHls; assumption ]. } }
+      split;
+      [ eapply InA_filter_some1
+      | eapply InA_filter_some2 ];
+      split_iff;
+      eauto.
+    Qed.
+
+    Lemma InA_filter_some_fst {A B} (eqP : relation A)
+          ls (a : A) (b : B)
+    : InA (fun p p' => eqP (fst p) (fst p')) (a, b) (filter_some ls)
+      -> InA (fun p p' => eqP (fst p) (fst p')) (a, Some b) ls.
+    Proof.
+      apply (@InA_filter_some1 _ _(fun _ p p' => eqP (fst p) (fst p'))); simpl; trivial.
+    Qed.
+
+    Lemma NoDupA_filter_some {A B} (f : relation A) (ls : list (A * option B))
+    : NoDupA (fun p p' => f (fst p) (fst p')) ls
+      -> NoDupA (fun p p' => f (fst p) (fst p')) (filter_some ls).
+    Proof.
+      induction ls;
+      repeat match goal with
+               | _ => intro
+               | _ => progress simpl in *
+               | _ => progress subst
+               | _ => assumption
+               | [ |- _ <-> _ ] => split
+               | [ H : NoDupA _ (_::_) |- _ ] => (inversion H; clear H)
+               | [ |- NoDupA _ nil ] => constructor
+               | [ |- NoDupA _ (_::_) ] => constructor
+               | _ => progress destruct_head prod
+               | _ => progress destruct_head option
+               | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
+               | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+               | [ H : InA _ _ (filter_some _) |- _ ] => unique pose proof (@InA_filter_some_fst _ _ _ _ _ _ H)
+               | _ => progress unfold not in *
+               | _ => solve [ eauto ]
+             end.
+    Qed.
+
+    Section InA_map.
+      Context {A B}
+              (eqPA : A -> A -> Prop)
+              (eqPB : B -> B -> Prop)
+              (f : A -> B).
+
+      Lemma InA_map1 x0 x1 ls
+            (H0 : forall a, eqPA x0 a -> eqPB x1 (f a))
+      : InA eqPA x0 ls -> InA eqPB x1 (List.map f ls).
+      Proof.
+        induction ls as [|?? IHls]; intro H; inversion H; subst; simpl;
+        solve [ left; apply H0; assumption
+              | right; apply IHls; assumption ].
+      Qed.
+
+      Lemma InA_map2 x0 x1 ls
+            (H0 : forall a, eqPB x1 (f a) -> eqPA x0 a)
+      : InA eqPB x1 (List.map f ls) -> InA eqPA x0 ls.
+      Proof.
+        induction ls as [|?? IHls]; intro H; inversion H; subst; simpl;
+        solve [ left; apply H0; assumption
+              | right; apply IHls; assumption ].
+      Qed.
+
+      Lemma InA_map3 `{Reflexive _ eqPA} x1 ls
+      : InA eqPB x1 (List.map f ls) -> exists x0, InA eqPA x0 ls /\ eqPB x1 (f x0).
+      Proof.
+        induction ls as [|?? IHls]; intro H'; inversion H'; clear H';
+        repeat match goal with
+                 | _ => progress subst
+                 | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+                 | _ => progress simpl in *
+                 | _ => progress destruct_head ex
+                 | _ => progress destruct_head and
+               end;
+        solve [ eexists; split; [ | eassumption ];
+                first [ left; reflexivity
+                      | right; eassumption ] ].
+      Qed.
+
+      Lemma InA_map3' `{Reflexive _ eqPA} x1 ls
+      : InA eqPB x1 (List.map f ls) -> exists x0, InA eqPA x0 ls.
+      Proof.
+        intro H'; apply InA_map3 in H'.
+        destruct_head ex;
+          destruct_head and;
+          eexists; eassumption.
+      Qed.
+    End InA_map.
+
+    Local Ltac NoDupA_map_t :=
+      repeat match goal with
+               | _ => intro
+               | _ => progress simpl in *
+               | _ => progress subst
+               | _ => assumption
+               | [ |- _ <-> _ ] => split
+               | [ H : NoDupA _ (_::_) |- _ ] => (inversion H; clear H)
+               | [ |- NoDupA _ nil ] => constructor
+               | [ |- NoDupA _ (_::_) ] => constructor
+               | _ => progress destruct_head prod
+               | _ => progress destruct_head option
+               | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
+               | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+               | [ H : InA _ _ (filter_some _) |- _ ] => unique pose proof (@InA_filter_some_fst _ _ _ _ _ _ H)
+               | _ => progress unfold not in *
+               | _ => solve [ eauto using InA_map1, InA_map2 ]
+             end.
+
+    Lemma NoDupA_map1 {A B} (eqA : relation A) (eqB : relation B) (f : A -> B)
+          ls
+          (H : forall a a', eqA a a' -> eqB (f a) (f a'))
+    : NoDupA eqB (List.map f ls) -> NoDupA eqA ls.
+    Proof.
+      induction ls; NoDupA_map_t.
+    Qed.
+
+    Lemma NoDupA_map2 {A B} (eqA : relation A) (eqB : relation B) (f : A -> B)
+          ls
+          (H : forall a a', eqB (f a) (f a') -> eqA a a')
+    : NoDupA eqA ls -> NoDupA eqB (List.map f ls).
+    Proof.
+      induction ls; NoDupA_map_t.
     Qed.
 
     Definition elements (m : t elt) : list (key * elt)
@@ -100,13 +285,14 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       := List.fold_left (fun acc kv => f (fst kv) (snd kv) acc) (elements m) init.
 
     Definition equal (eq : elt -> elt -> bool) (m1 : t elt) (m2 : t elt) : bool
-      := M.equal (fun v1 v2 => match snd v1, snd v2 with
+      := M.equal (fun v1 v2 => match v1, v2 with
                                  | None, None => true
                                  | Some v1', Some v2' => eq v1' v2'
                                  | _, _ => false
                                end)
-                 m1
-                 m2.
+                 (M.map (@snd _ _) m1)
+                 (M.map (@snd _ _) m2).
+
 
     Section Spec.
       Variable m m' m'' : t elt.
@@ -124,6 +310,19 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
 
       Definition eq_key_elt (p p':key*elt) :=
           E.eq (fst p) (fst p') /\ (snd p) = (snd p').
+
+    Local Ltac pre_t :=
+      repeat match goal with
+               | _ => progress unfold remove, In, MapsTo, find, elements in *
+               | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E
+               | _ => progress simpl in *
+               | _ => intro
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head and
+               | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H
+               | _ => progress destruct_head prod
+               | _ => progress subst
+             end.
 
       Lemma MapsTo_1 : E.eq x y -> MapsTo x e m -> MapsTo y e m.
       Proof.
@@ -251,58 +450,6 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
         apply M.add_3 in H'; trivial.
       Qed.
 
-      Local Ltac add_facts :=
-        repeat match goal with
-                 | _ => progress subst
-                 | [ H : Some _ = None |- _ ] => solve [ inversion H ]
-                 | [ H : None = Some _ |- _ ] => solve [ inversion H ]
-                 | [ H : E.eq ?x ?y, H' : M.MapsTo ?x ?e ?m |- _ ]
-                   => unique pose proof (M.MapsTo_1 H H')
-                 | [ H : E.eq ?x ?y |- _ ]
-                   => unique pose proof (E.eq_sym H)
-                 | [ x : key |- _ ]
-                   => unique pose proof (E.eq_refl x)
-                 | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
-                   => unique pose proof (E.eq_trans H H')
-                 | [ H : E.eq ?x ?y, H' : context[M.add ?x ?e ?m] |- _ ]
-                   => unique pose proof (M.add_1 m e H)
-                 | [ H : M.MapsTo ?x ?e ?m |- _ ]
-                   => unique pose proof (M.find_1 H)
-                 | [ H : M.find ?x ?m = Some ?e |- _ ]
-                   => unique pose proof (M.find_2 H)
-                 | [ H : ?a = ?b |- _ ]
-                   => unique pose proof (Logic.eq_sym H)
-                 | [ H : ?a = ?b, H' : ?b = ?c |- _ ]
-                   => unique pose proof (Logic.eq_trans H H')
-                 | [ H : Some ?x = Some ?y |- _ ]
-                   => unique pose proof (Some_inj H)
-                 | [ H : (?x, ?y) = (?x', ?y') :> _ * _ |- _ ]
-                   => unique pose proof (f_equal (@fst _ _) H : x = x')
-                 | [ H : (?x, ?y) = (?x', ?y') :> _ * _ |- _ ]
-                   => unique pose proof (f_equal (@snd _ _) H : y = y')
-                 | [ H : ~E.eq ?x ?y |- _ ]
-                   => unique pose proof ((fun H' => H (E.eq_sym H')) : ~E.eq y x)
-                 | [ H : ~E.eq ?x ?y, H' : M.MapsTo ?y ?e (M.add ?x ?e' ?m) |- _ ]
-                   => unique pose proof (M.add_3 H H')
-                 | [ H : ~E.eq ?x ?y, H' : M.MapsTo ?y ?e ?m, H'' : appcontext[M.add ?x ?e' ?m] |- _ ]
-                   => unique pose proof (M.add_2 e' H H')
-                 | [ H : ~E.eq ?x ?y, H' : M.MapsTo ?y ?e ?m |- appcontext[M.add ?x ?e' ?m] ]
-                   => unique pose proof (M.add_2 e' H H')
-               end.
-
-      Local Ltac pre_t :=
-        repeat match goal with
-                 | _ => progress unfold remove, In, MapsTo, find, elements in *
-                 | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E
-                 | _ => progress simpl in *
-                 | _ => intro
-                 | _ => progress destruct_head ex
-                 | _ => progress destruct_head and
-                 | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H
-                 | _ => progress destruct_head prod
-                 | _ => progress subst
-               end.
-
       Lemma remove_1 : E.eq x y -> ~ In y (remove x m).
       Proof.
         clear.
@@ -356,34 +503,6 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
         { intros ? ? ? [? H']; simpl in *; inversion H'. }
       Qed.
 
-      Section InA_map.
-        Context {A B}
-                (eqPA : A -> A -> Prop)
-                (eqPB : B -> B -> Prop)
-                (f : A -> B)
-                (x0 : A)
-                (x1 : B)
-                (ls : list A).
-
-        Lemma InA_map1
-              (H0 : forall a, eqPA x0 a -> eqPB x1 (f a))
-        : InA eqPA x0 ls -> InA eqPB x1 (List.map f ls).
-        Proof.
-          induction ls as [|?? IHls]; intro H; inversion H; subst; simpl;
-          solve [ left; apply H0; assumption
-                | right; apply IHls; assumption ].
-        Qed.
-
-        Lemma InA_map2
-              (H0 : forall a, eqPB x1 (f a) -> eqPA x0 a)
-        : InA eqPB x1 (List.map f ls) -> InA eqPA x0 ls.
-        Proof.
-          induction ls as [|?? IHls]; intro H; inversion H; subst; simpl;
-          solve [ left; apply H0; assumption
-                | right; apply IHls; assumption ].
-        Qed.
-      End InA_map.
-
       Lemma elements_1 : MapsTo x e m -> InA eq_key_elt (x,e) (elements m).
       Proof.
         clear.
@@ -401,33 +520,21 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
         unfold MapsTo, elements.
         intro H.
         apply InA_filter_some_eq_key_elt in H.
-        admit.
-        (*
-        eapply InA_map2 in H.
-        { apply M.elements_2 in H.
-          esplit; eassumption. }
-        simpl in *.
-        eexists; apply M.elements_2.
-        pose proof (fun eqPA a b => InA_map2 eqPA _ a _ b H) as H'; simpl in *.
-
-        eapply H'.
-
-        unfold M.eq_key_elt; simpl.
-
-        eapply InA_map2 in H; try eassumption.
-        intros; hnf in *; pre_t; split; trivial; try reflexivity.
-        intros [gen H].
-        apply M.elements_1 in H.
-        apply InA_filter_some_eq_key_elt.
-        eapply InA_map; try eassumption.
-        intros; hnf in *; pre_t; split; trivial.*)
+        eapply InA_map3 in H.
+        { destruct H as [[k [gen v]] H]; simpl in *.
+          exists gen; destruct_head and; subst.
+          apply M.elements_2 in H.
+          add_facts; assumption. }
+        { typeclasses eauto. }
       Qed.
 
       Lemma elements_3w : NoDupA eq_key (elements m).
       Proof.
         clear.
         unfold elements.
-        admit.
+        unfold eq_key.
+        apply NoDupA_filter_some.
+        eapply NoDupA_map2; try apply M.elements_3w; trivial.
       Qed.
 
       Lemma cardinal_1 : cardinal m = length (elements m).
@@ -455,7 +562,26 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       Lemma equal_1 : Equivb cmp m m' -> equal cmp m m' = true.
       Proof.
         clear.
-        unfold equal, Equivb, Equiv, In, MapsTo; simpl.
+        unfold equal, Equivb, Equiv, In, MapsTo, Cmp; simpl.
+        intros.
+        apply M.equal_1.
+        unfold M.Equivb, M.Equiv, Cmp;
+        repeat match goal with
+                 | _ => intro
+                 | [ H : (ex _) -> ?T |- _ ]
+                   => specialize (fun x p => H (ex_intro _ x p))
+                 | [ H : forall a, ex _ -> _ |- _ ]
+                   => specialize (fun a b p => H a (ex_intro _ b p))
+                 | [ H : forall a b, ex _ -> _ |- _ ]
+                   => specialize (fun a b c p => H a b (ex_intro _ c p))
+                 | [ H : forall a b c, ex _ -> _ |- _ ]
+                   => specialize (fun a b c d p => H a b c (ex_intro _ d p))
+                 | _ => progress simpl in *
+                 | _ => progress split_iff
+                 | [ |- _ <-> _ ] => split
+                 | [ |- _ /\ _ ] => split
+                 | [ H : M.In _ (M.map _ _) |- _ ] => unique pose proof (M.map_2 H)
+               end;
         admit.
       Qed.
 
@@ -485,20 +611,59 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
   Proof.
     unfold map, In, MapsTo.
     intros; destruct_head ex.
-    admit.
+    pose proof (@M.map_2) as H'.
+    specialize (fun a b c d e f g => H' a b c d e (ex_intro _ f g)); simpl in *.
+    specialize (H' _ _ _ _ _ _ H).
+    destruct_head_hnf ex.
+    destruct_head_hnf prod.
+    destruct_head_hnf option.
+    { repeat eexists; eassumption. }
+    { exfalso.
+      match goal with
+        | [ H : M.MapsTo ?x (_, None) ?m, H' : M.MapsTo ?x (?g, Some ?v) (M.map ?f ?m) |- _ ]
+          => apply (M.map_1 f) in H
+      end.
+      add_facts.
+      simpl in *.
+      congruence. }
   Qed.
+
 
   Lemma mapi_1 : forall (elt elt':Type)(m: t elt)(x:key)(e:elt)
                             (f:key->elt->elt'), MapsTo x e m ->
                                                 exists y, E.eq y x /\ MapsTo x (f y e) (mapi f m).
   Proof.
-    admit.
+    unfold key, t, mapi, In, MapsTo.
+    intros ? ? ? ? ? ? [gen H].
+    let f := match goal with |- appcontext[M.mapi ?f] => constr:f end in
+    pose proof (M.mapi_1 f H) as H'; simpl in *.
+    destruct_head_hnf ex.
+    destruct_head_hnf prod.
+    destruct_head_hnf and.
+    destruct_head_hnf option.
+    repeat esplit; eassumption.
   Qed.
 
   Lemma mapi_2 : forall (elt elt':Type)(m: t elt)(x:key)
                         (f:key->elt->elt'), In x (mapi f m) -> In x m.
   Proof.
-    admit.
+    unfold key, t, mapi, In, MapsTo.
+    intros ? ? ? ? ? [v [gen H]].
+    pose proof (fun a b c d e f g => @M.mapi_2 a b c d e (ex_intro _ f g)) as H'; simpl in H'.
+    specialize (H' _ _ _ _ _ _ H).
+    destruct_head_hnf ex.
+    destruct_head_hnf prod.
+    destruct_head_hnf and.
+    destruct_head_hnf option.
+    { repeat esplit; eassumption. }
+    { exfalso.
+      match goal with
+        | [ H : M.MapsTo ?x (_, None) ?m, H' : M.MapsTo ?x (?g, Some ?v) (M.mapi ?f ?m) |- _ ]
+          => apply (M.mapi_1 f) in H
+      end.
+      destruct_head ex.
+      destruct_head and.
+      add_facts. }
   Qed.
 
   Lemma map2_1 : forall (elt elt' elt'':Type)(m: t elt)(m': t elt')
@@ -506,13 +671,82 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
                    In x m \/ In x m' ->
                    find x (map2 f m m') = f (find x m) (find x m').
   Proof.
-    admit.
+    unfold key, t, map2, In, MapsTo, find.
+    intros; rewrite M.map2_1.
+    { do 2 edestruct @M.find;
+      destruct_head prod;
+      destruct_head option;
+      unfold option_map;
+      simpl;
+      match goal with
+        | [ |- appcontext[match ?E with _ => _ end] ] => destruct E; reflexivity
+      end. }
+    { destruct_head or; [ left | right ];
+      unfold M.In;
+      destruct_head ex;
+      repeat esplit; eassumption. }
   Qed.
 
   Lemma map2_2 : forall (elt elt' elt'':Type)(m: t elt)(m': t elt')
                         (x:key)(f:option elt->option elt'->option elt''),
                    In x (map2 f m m') -> In x m \/ In x m'.
   Proof.
+    unfold key, t, map2, In, MapsTo, find.
+    intros ? ? ? ? ? ? ? [v [gen H]].
+    pose proof (fun a b c d e f g h i => @M.map2_2 a b c d e f g (ex_intro _ h i)) as H'; simpl in H'.
+    specialize (H' _ _ _ _ _ _ _ _ H).
+    destruct_head or; [ left | right ];
+    destruct_head_hnf ex;
+    destruct_head prod;
+    destruct_head option;
+    try solve [ repeat esplit; eassumption ];
+    exfalso;
+    [ pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_introl (ex_intro _ h i))) as H''
+    | pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_intror (ex_intro _ h i))) as H'' ];
+    match goal with
+      | [ H : M.MapsTo ?x (_, None) _, H' : M.MapsTo ?x (?g, Some ?v) (M.map2 ?f ?m ?m') |- _ ]
+        => specialize (H'' _ _ _ m m' _ f _ H);
+          let f' := fresh in
+          let H''' := fresh in
+          set (f' := f) in *;
+            assert (H''' : id (f = f')) by reflexivity;
+            clearbody f';
+            revert H H' H'' H'''; clear; intros
+    end;
+    destruct_head ex;
+    destruct_head and;
+    add_facts;
+    try solve [ unfold id, option_map in *; subst;
+    repeat match goal with
+             | [ H : appcontext[match ?f ?x ?m with _ => _ end] |- _ ]
+               => destruct (f x m)
+             (*| [ H : M.find ?x ?m = _, H' : appcontext[match M.find ?x ?m with _ => _ end] |- _ ]
+               => rewrite H in H'
+             | [ H : appcontext[match M.find ?x ?m with _ => _ end] |- _ ]
+               => let H' := fresh in
+                  case_eq (M.find x m);
+                    [ intros ? H'; rewrite H' in H
+                    | intro H'; rewrite H' in H ]*)
+             | _ => progress destruct_head prod
+             | _ => progress destruct_head option
+             | _ => congruence
+           end ].
+    congruence.
+
+
+    case_eq (M.find x m').
+ }
+    intros; rewrite M.map2_1.
+    { do 2 edestruct @M.find;
+      destruct_head prod;
+      destruct_head option;
+      match goal with
+        | [ |- appcontext[match ?E with _ => _ end] ] => destruct E; reflexivity
+      end. }
+    { destruct_head or; [ left | right ];
+      unfold M.In;
+      destruct_head ex;
+      repeat esplit; eassumption. }
     admit.
   Qed.
 
