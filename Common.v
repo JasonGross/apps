@@ -47,3 +47,85 @@ Ltac atomic x :=
     | context[?E] => (* catch-all *) (not constr_eq E x); fail 1 x "is not atomic (has subterm" E ")"
     | _ => idtac
   end.
+
+(** given a [matcher] that succeeds on some hypotheses and fails on
+    others, destruct any matching hypotheses, and then execute [tac]
+    after each [destruct].
+    The [tac] part exists so that you can, e.g., [simpl in *], to
+    speed things up. *)
+Ltac destruct_all_matches_then matcher tac :=
+  repeat match goal with
+           | [ H : ?T |- _ ] => matcher T; destruct H; tac
+         end.
+
+Ltac destruct_all_matches matcher := destruct_all_matches_then matcher ltac:(simpl in *).
+Ltac destruct_all_matches' matcher := destruct_all_matches_then matcher idtac.
+
+(* matches anything whose type has a [T] in it *)
+Ltac destruct_type_matcher T HT :=
+  match HT with
+    | context[T] => idtac
+  end.
+Ltac destruct_type T := destruct_all_matches ltac:(destruct_type_matcher T).
+Ltac destruct_type' T := destruct_all_matches' ltac:(destruct_type_matcher T).
+
+Ltac destruct_head_matcher T HT :=
+  match head HT with
+    | T => idtac
+  end.
+Ltac destruct_head T := destruct_all_matches ltac:(destruct_head_matcher T).
+Ltac destruct_head' T := destruct_all_matches' ltac:(destruct_head_matcher T).
+
+Ltac destruct_head_hnf_matcher T HT :=
+  match head_hnf HT with
+    | T => idtac
+  end.
+Ltac destruct_head_hnf T := destruct_all_matches ltac:(destruct_head_hnf_matcher T).
+Ltac destruct_head_hnf' T := destruct_all_matches' ltac:(destruct_head_hnf_matcher T).
+
+Ltac destruct_sig_matcher HT :=
+  match eval hnf in HT with
+    | ex _ => idtac
+    | ex2 _ _ => idtac
+    | sig _ => idtac
+    | sig2 _ _ => idtac
+    | sigT _ => idtac
+    | sigT2 _ _ => idtac
+    | and _ _ => idtac
+    | prod _ _ => idtac
+  end.
+Ltac destruct_sig := destruct_all_matches destruct_sig_matcher.
+Ltac destruct_sig' := destruct_all_matches' destruct_sig_matcher.
+
+Ltac destruct_all_hypotheses := destruct_all_matches ltac:(fun HT =>
+  destruct_sig_matcher HT || destruct_sig_matcher HT
+).
+
+(** if progress can be made by [exists _], but it doesn't matter what
+    fills in the [_], assume that something exists, and leave the two
+    goals of finding a member of the apropriate type, and proving that
+    all members of the appropriate type prove the goal *)
+Ltac destruct_exists' T := cut T; try (let H := fresh in intro H; exists H).
+Ltac destruct_exists := destruct_head_hnf @sigT;
+  match goal with
+(*    | [ |- @sig ?T _ ] => destruct_exists' T*)
+    | [ |- @sigT ?T _ ] => destruct_exists' T
+(*    | [ |- @sig2 ?T _ _ ] => destruct_exists' T*)
+    | [ |- @sigT2 ?T _ _ ] => destruct_exists' T
+  end.
+
+(* [pose proof defn], but only if no hypothesis of the same type exists.
+   most useful for proofs of a proposition *)
+Tactic Notation "unique" "pose" "proof" constr(defn) :=
+  let T := type of defn in
+  match goal with
+    | [ H : T |- _ ] => fail 1
+    | _ => pose proof defn
+  end.
+
+(** [pose defn], but only if that hypothesis doesn't exist *)
+Tactic Notation "unique" "pose" constr(defn) :=
+  match goal with
+    | [ H := defn |- _ ] => fail 1
+    | _ => pose defn
+  end.
