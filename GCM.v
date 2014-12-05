@@ -73,7 +73,7 @@ Section GCM.
     else
       GHASH H [] IV.
 
-  Definition C : bitvec :=
+  Definition Encrypt : bitvec :=
     match P with
       | nil => nil
       | _ =>
@@ -85,12 +85,38 @@ Section GCM.
         flat Ci ++ Cn
     end.
 
-  Definition T := firstn t $ GHASH H A C + E K Y0.
-
-  Definition encrypt := (C, T).
+  Definition Hash := fun C => firstn t $ GHASH H A C + E K Y0.
 
 End GCM.
 
+Definition encrypt E K IV P A k := 
+  let C := Encrypt E K IV P in
+  let T := Hash E K IV A k C in
+  (C, T).
+
+Fixpoint forall2 A B (p : A -> B -> bool) ls1 ls2 :=
+  match ls1, ls2 with
+    | a :: ls1, b :: ls2 => p a b && forall2 p ls1 ls2
+    | nil, nil => true
+    | _, _ => false
+  end.
+
+Definition bitvec_eqb := forall2 Bool.eqb.
+Infix "=?" := bitvec_eqb : bitvec_scope.
+Goal bin "101" =? bin "101" = true. r. Qed.
+Goal bin "101" =? bin "10" = false. r. Qed.
+Goal hex "ab" =? hex "ab" = true. r. Qed.
+Goal hex "ab" =? hex "ac" = false. r. Qed.
+
+Definition decrypt E K IV C A T :=
+  let k := length T in
+  let T' := Hash E K IV A k C in
+  if T' =? T then
+    let P := Encrypt E K IV C in
+    Some P
+  else
+    None.
+  
 Notation E := AES.encrypt.
 
 Module test1.
@@ -104,7 +130,7 @@ Module test1.
   Definition t_E_K_Y0 := hex "58e2fccefa7e3061367f1d57a4e7455a".
   Goal E t_K t_Y0 = t_E_K_Y0. r. Qed.
   Definition t_C := hex "".
-  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Goal (Encrypt E t_K t_IV t_P) = t_C. r. Qed.
   Definition t_lenA_lenC := hex "00000000000000000000000000000000".
   Definition t_A := hex "".
   Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
@@ -112,7 +138,8 @@ Module test1.
   Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
   Definition t_T := hex "58e2fccefa7e3061367f1d57a4e7455a".
   Definition t_t := 128.
-  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+  Goal encrypt E t_K t_IV t_P t_A t_t = (t_C, t_T). r. Qed.
+  Goal (decrypt E t_K t_IV t_C t_A t_T) = Some t_P. r. Qed.
 End test1.
 
 Module test2.
@@ -126,7 +153,7 @@ Module test2.
   Definition t_E_K_Y0 := hex "58e2fccefa7e3061367f1d57a4e7455a".
   Goal E t_K t_Y0 = t_E_K_Y0. r. Qed.
   Definition t_C := hex "0388dace60b6a392f328c2b971b2fe78".
-  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Goal (Encrypt E t_K t_IV t_P) = t_C. r. Qed.
   Definition t_lenA_lenC := hex "00000000000000000000000000000080".
   Definition t_A := hex "".
   Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
@@ -134,7 +161,10 @@ Module test2.
   Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
   Definition t_T := hex "ab6e47d42cec13bdf53a67b21257bddf".
   Definition t_t := 128.
-  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+  Goal encrypt E t_K t_IV t_P t_A t_t = (t_C, t_T). r. Qed.
+  Goal (decrypt E t_K t_IV t_C t_A t_T) = Some t_P. r. Qed.
+  Definition noise := left_trunc_pad_to (length t_C) $ hex "000001000".
+  Goal (decrypt E t_K t_IV (t_C + noise) t_A t_T) = None. r. Qed.
 End test2.
 
 Module test3.
@@ -154,7 +184,7 @@ Module test3.
                                      "e3aa212f2c02a4e035c17e2329aca12e";
                                      "21d514b25466931c7d8f6a5aac84aa05";
                                      "1ba30b396a0aac973d58e091473f5985"].
-  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Goal (Encrypt E t_K t_IV t_P) = t_C. r. Qed.
   Definition t_lenA_lenC := hex "00000000000000000000000000000200".
   Definition t_A := hex "".
   Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
@@ -162,7 +192,10 @@ Module test3.
   Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
   Definition t_T := hex "4d5c2af327cd64a62cf35abd2ba6fab4".
   Definition t_t := 128.
-  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+  Goal encrypt E t_K t_IV t_P t_A t_t = (t_C, t_T). r. Qed.
+  Goal (decrypt E t_K t_IV t_C t_A t_T) = Some t_P. r. Qed.
+  Definition noise := left_trunc_pad_to (length t_C) $ hex "000001000".
+  Goal (decrypt E t_K t_IV (t_C + noise) t_A t_T) = None. r. Qed.
 End test3.
 
 Module test4.
@@ -184,14 +217,17 @@ Module test4.
                                      "e3aa212f2c02a4e035c17e2329aca12e";
                                      "21d514b25466931c7d8f6a5aac84aa05";
                                      "1ba30b396a0aac973d58e091"].
-  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Goal (Encrypt E t_K t_IV t_P) = t_C. r. Qed.
   Definition t_lenA_lenC := hex "00000000000000a000000000000001e0".
   Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
   Definition t_GHASH := hex "698e57f70e6ecc7fd9463b7260a9ae5f".
   Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
   Definition t_T := hex "5bc94fbc3221a5db94fae95ae7121a47".
   Definition t_t := 128.
-  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+  Goal encrypt E t_K t_IV t_P t_A t_t = (t_C, t_T). r. Qed.
+  Goal (decrypt E t_K t_IV t_C t_A t_T) = Some t_P. r. Qed.
+  Definition noise := left_trunc_pad_to (length t_C) $ hex "000001000".
+  Goal (decrypt E t_K t_IV (t_C + noise) t_A t_T) = None. r. Qed.
 End test4.
 
 Module test5.
@@ -213,14 +249,17 @@ Module test5.
                                      "699b2a714fcdc6f83766e5f97b6c7423";
                                      "73806900e49f24b22b097544d4896b42";
                                      "4989b5e1ebac0f07c23f4598"].
-  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Goal (Encrypt E t_K t_IV t_P) = t_C. r. Qed.
   Definition t_lenA_lenC := hex "00000000000000a000000000000001e0".
   Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
   Definition t_GHASH := hex "df586bb4c249b92cb6922877e444d37b".
   Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
   Definition t_T := hex "3612d2e79e3b0785561be14aaca2fccb".
   Definition t_t := 128.
-  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+  Goal encrypt E t_K t_IV t_P t_A t_t = (t_C, t_T). r. Qed.
+  Goal (decrypt E t_K t_IV t_C t_A t_T) = Some t_P. r. Qed.
+  Definition noise := left_trunc_pad_to (length t_C) $ hex "000001000".
+  Goal (decrypt E t_K t_IV (t_C + noise) t_A t_T) = None. r. Qed.
 End test5.
 
 Module test6.
@@ -245,12 +284,15 @@ Module test6.
                                      "be9112a5c3a211a8ba262a3cca7e2ca7";
                                      "01e4a9a4fba43c90ccdcb281d48c7c6f";
                                      "d62875d2aca417034c34aee5"].
-  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Goal (Encrypt E t_K t_IV t_P) = t_C. r. Qed.
   Definition t_lenA_lenC := hex "00000000000000a000000000000001e0".
   Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
   Definition t_GHASH := hex "1c5afe9760d3932f3c9a878aac3dc3de".
   Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
   Definition t_T := hex "619cc5aefffe0bfa462af43c1699d050".
   Definition t_t := 128.
-  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+  Goal encrypt E t_K t_IV t_P t_A t_t = (t_C, t_T). r. Qed.
+  Goal (decrypt E t_K t_IV t_C t_A t_T) = Some t_P. r. Qed.
+  Definition noise := left_trunc_pad_to (length t_C) $ hex "000001000".
+  Goal (decrypt E t_K t_IV (t_C + noise) t_A t_T) = None. r. Qed.
 End test6.
