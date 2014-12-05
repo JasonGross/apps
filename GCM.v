@@ -34,7 +34,7 @@ Section GCM.
   Infix "*" := gf128_mul : bitvec_scope.
   Infix "+" := xor : bitvec_scope.
 
-  Definition GHASH (H : b128) (A : bitvec) (C : bitvec) : bitvec :=
+  Definition GHASH (H : b128) (A : bitvec) (C : bitvec) : b128 :=
     let As := slice 128 A in
     let Cs := slice 128 C in
     let m := length As in
@@ -59,7 +59,7 @@ Section GCM.
 
   Definition H := E K $ zeros 128.
 
-  Definition msb_unsign_plus (a b : bitvec) : bitvec := msb_of_nat (length a) ((msb_to_nat a) + (msb_to_nat b)).
+  Definition msb_unsign_plus (a b : bitvec) : bitvec := msb_of_N (length a) ((msb_to_N a) + (msb_to_N b))%N.
 
   Definition incr v := 
     let F_len := length v - 32 in
@@ -67,7 +67,7 @@ Section GCM.
     let I := skipn F_len v in
     F ++ (msb_unsign_plus I (msb_of_nat 32 1)).
 
-  Definition Y0 :=
+  Definition Y0 : b128 :=
     if length IV =? 96 then
       IV ++ zeros 31 ++ bin "1"
     else
@@ -194,3 +194,63 @@ Module test4.
   Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
 End test4.
 
+Module test5.
+  Definition t_K := hex "feffe9928665731c6d6a8f9467308308".
+  Definition t_P := flat $ map hex ["d9313225f88406e5a55909c5aff5269a";
+                                     "86a7a9531534f7da2e4c303d8a318a72";
+                                     "1c3c0c95956809532fcf0e2449a6b525";
+                                     "b16aedf5aa0de657ba637b39"].
+  Definition t_A := flat $ map hex ["feedfacedeadbeeffeedfacedeadbeef";
+                                     "abaddad2"].
+  Definition t_IV := hex "cafebabefacedbad".
+  Definition t_H := hex "b83b533708bf535d0aa6e52980d53b78".
+  Goal (H E t_K) = t_H. r. Qed.
+  Definition t_Y0 := hex "c43a83c4c4badec4354ca984db252f7d".
+  Goal (Y0 E t_K t_IV) = t_Y0. r. Qed.
+  Definition t_E_K_Y0 := hex "e94ab9535c72bea9e089c93d48e62fb0".
+  Goal E t_K t_Y0 = t_E_K_Y0. r. Qed.
+  Definition t_C := flat $ map hex ["61353b4c2806934a777ff51fa22a4755";
+                                     "699b2a714fcdc6f83766e5f97b6c7423";
+                                     "73806900e49f24b22b097544d4896b42";
+                                     "4989b5e1ebac0f07c23f4598"].
+  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Definition t_lenA_lenC := hex "00000000000000a000000000000001e0".
+  Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
+  Definition t_GHASH := hex "df586bb4c249b92cb6922877e444d37b".
+  Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
+  Definition t_T := hex "3612d2e79e3b0785561be14aaca2fccb".
+  Definition t_t := 128.
+  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+End test5.
+
+Module test6.
+  Definition t_K := hex "feffe9928665731c6d6a8f9467308308".
+  Definition t_P := flat $ map hex ["d9313225f88406e5a55909c5aff5269a";
+                                     "86a7a9531534f7da2e4c303d8a318a72";
+                                     "1c3c0c95956809532fcf0e2449a6b525";
+                                     "b16aedf5aa0de657ba637b39"].
+  Definition t_A := flat $ map hex ["feedfacedeadbeeffeedfacedeadbeef";
+                                     "abaddad2"].
+  Definition t_IV := flat $ map hex ["9313225df88406e555909c5aff5269aa";
+                                      "6a7a9538534f7da1e4c303d2a318a728";
+                                      "c3c0c95156809539fcf0e2429a6b5254";
+                                      "16aedbf5a0de6a57a637b39b"].
+  Definition t_H := hex "b83b533708bf535d0aa6e52980d53b78".
+  Goal (H E t_K) = t_H. r. Qed.
+  Definition t_Y0 := hex "3bab75780a31c059f83d2a44752f9864".
+  Goal (Y0 E t_K t_IV) = t_Y0. r. Qed.
+  Definition t_E_K_Y0 := hex "7dc63b399f2d98d57ab073b6baa4138e".
+  Goal E t_K t_Y0 = t_E_K_Y0. r. Qed.
+  Definition t_C := flat $ map hex ["8ce24998625615b603a033aca13fb894";
+                                     "be9112a5c3a211a8ba262a3cca7e2ca7";
+                                     "01e4a9a4fba43c90ccdcb281d48c7c6f";
+                                     "d62875d2aca417034c34aee5"].
+  Goal (C E t_K t_IV t_P) = t_C. r. Qed.
+  Definition t_lenA_lenC := hex "00000000000000a000000000000001e0".
+  Goal len t_A ++ len t_C = t_lenA_lenC. r. Qed.
+  Definition t_GHASH := hex "1c5afe9760d3932f3c9a878aac3dc3de".
+  Goal GHASH t_H t_A t_C = t_GHASH. r. Qed.
+  Definition t_T := hex "619cc5aefffe0bfa462af43c1699d050".
+  Definition t_t := 128.
+  Goal T E t_K t_IV t_P t_A t_t = t_T. r. Qed.
+End test6.

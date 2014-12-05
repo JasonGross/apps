@@ -65,18 +65,28 @@ Definition lsb_of_N (n : N) : byte :=
     | Npos p => lsb_of_pos p
   end.
 
-Fixpoint lsb_to_nat (vec : bitvec) : nat := 
+Fixpoint lsb_to_N (vec : bitvec) : N :=
   match vec with
-    | nil => 0
-    | b :: vec => (if b then 1 else 0) + 2 * lsb_to_nat vec
+    | nil => N0
+    | b :: vec =>
+      match lsb_to_N vec with
+        | N0 => if b then Npos xH else N0
+        | Npos p => 
+          let p := if b then xI p else xO p in 
+          Npos p
+      end
   end.
 
+Definition lsb_to_nat : bitvec -> nat := lsb_to_N >> nat_of_N.
+
 Goal lsb_to_nat "1100" = 3. r. Qed.
+Goal lsb_to_nat "1101" = 11. r. Qed.
 
 (* byte is in MSB-first format *)
 
 Arguments rev {A} _.
 
+Definition msb_to_N := rev >> lsb_to_N.
 Definition msb_to_nat := rev >> lsb_to_nat.
 
 (* convert N to MSB-first bitvec *)
