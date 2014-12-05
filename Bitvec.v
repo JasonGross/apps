@@ -180,3 +180,22 @@ Definition gf_mul n R (a b : bitvec) : bitvec :=
              else
                rshift 1 V in
     (Z, V)).
+
+Definition ascii_to_byte := N_of_ascii >> byte_of_N.
+
+Definition str_to_bitvec := str_to_list >> map ascii_to_byte >> flat.
+Local Notation bits := str_to_bitvec.
+Local Notation "# s" := (bits s) (at level 0).
+
+Definition byte_to_ascii := msb_to_N >> ascii_of_N.
+
+Definition bitvec_to_str := slice 8 >> map byte_to_ascii >> list_to_str.
+Local Notation str := bitvec_to_str.
+
+Delimit Scope bitvec_scope with bitvec.
+
+Definition t_str1 := "alsd34525^(*^&fjalsjdf;".
+Goal (str #t_str1 =? t_str1 = true)%string. r. Qed.
+Definition t_bits1 := hex "09281735923abcdef23417".
+Goal (#(str t_bits1) =? t_bits1 = true)%bitvec. r. Qed.
+

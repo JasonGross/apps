@@ -95,7 +95,7 @@ Definition encrypt E K IV P A k :=
   let T := Hash E K IV A k C in
   (C, T).
 
-Definition decrypt E K IV C A T :=
+Definition decrypt E K IV C A (T : bitvec) :=
   let k := length T in
   let T' := Hash E K IV A k C in
   if T' =? T then

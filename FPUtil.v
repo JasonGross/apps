@@ -46,6 +46,8 @@ Local Open Scope nat_scope.
 
 (* list utilities *)
 
+Definition splitn A n (ls : list A) := (firstn n ls, skipn n ls).
+
 Definition flat {A} (ls : list (list A)) := flat_map id ls.
 
 Definition sum A (zero : A) (add : A -> A -> A) (ls : list A) : A := fold_left add ls zero.
@@ -179,7 +181,15 @@ Definition intersperse_every n sep := str_to_list >> slice n >> intersperse (str
 
 Definition sep := intersperse_every.
 
+Definition string_eqb a b := if string_dec a b then true else false.
+Infix "=?" := string_eqb : string_scope.
+
 (* tactics *)
 
 Ltac r := vm_compute; reflexivity.
+
+(* others *)
+
+Require Import EqNat.
+Definition bne_nat a b := negb $ beq_nat a b.
 
