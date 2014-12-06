@@ -48,6 +48,47 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
                => unique pose proof (M.add_2 e' H H')
            end.
 
+  Local Ltac cleanup' :=
+    match goal with
+      | _ => reflexivity
+      | _ => assumption
+      | [ H : ?x = ?x |- _ ] => clear H
+      | [ H : true = false |- _ ] => solve [ inversion H ]
+      | [ H : false = true |- _ ] => solve [ inversion H ]
+      | [ H : Some _ = None |- _ ] => solve [ inversion H ]
+      | [ H : None = Some _ |- _ ] => solve [ inversion H ]
+      | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
+      | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
+      | [ H : inl _ = inl _ |- _ ] => (inversion H; clear H)
+      | [ H : inr _ = inr _ |- _ ] => (inversion H; clear H)
+      | [ H : eqlistA _ (_::_) _ |- _ ] => (inversion H; clear H)
+      | [ H : eqlistA _ _ (_::_) |- _ ] => (inversion H; clear H)
+      | [ |- Some _ = Some _ ] => apply f_equal
+      | [ |- _ /\ _ ] => split
+      | [ |- (_, _) = (_, _) ] => apply injective_projections
+      | [ H : ?x = Some _, H' : appcontext[match ?x with _ => _ end] |- _ ]
+        => rewrite H in H'
+      | [ H : ?x = None, H' : appcontext[match ?x with _ => _ end] |- _ ]
+        => rewrite H in H'
+      | [ H : ?x = Some _, H' : appcontext[?x] |- _ ]
+        => let h := head x in not constr_eq h (@Some); rewrite H in H'
+      | [ H : ?x = None, H' : appcontext[?x] |- _ ]
+        => let h := head x in not constr_eq h (@None); rewrite H in H'
+      | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+      | _ => progress subst
+      | _ => progress split_and
+      | _ => progress destruct_head and
+      | _ => progress destruct_head prod
+      | _ => progress destruct_head unit
+      | _ => progress destruct_head True
+      | _ => progress destruct_head False
+      | _ => progress destruct_head Empty_set
+    end.
+
+  Local Ltac cleanup := repeat cleanup'.
+
+
+
   Section elt.
     Variable elt : Type.
 
@@ -788,6 +829,57 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     unfold M.lt_key; simpl; trivial.
   Qed.
 
+  Section merge.
+    Variable elt : Type.
+
+    Definition merge (m1 : t elt) (m2 : t elt) : t elt
+      := M.map2
+           (fun a b
+            => match a, b with
+                 | Some (gen0, v0), Some (gen1, v1)
+                   => Some (if (Compare_dec.leb gen0 gen1 : bool)%nat
+                            then (gen1, v1)
+                            else (gen0, v0))
+                 | Some gv, None => Some gv
+                 | None, Some gv => Some gv
+                 | None, None => None
+               end)
+           m1 m2.
+
+    Lemma merge_In_1 : forall k m1 m2, In k m1 -> In k m2 -> In k (merge m1 m2).
+    Proof.
+      admit.
+    Qed.
+
+    Lemma merge_In_2 : forall k m1 m2, In k (merge m1 m2) -> In k m1 \/ In k m2.
+    Proof.
+      admit.
+    Qed.
+
+    Lemma merge_find_1 : forall k v m1 m2, find k m1 = Some v -> find k m2 = None -> find k (merge m1 m2) = Some v.
+    Proof.
+      unfold find, merge.
+      intros.
+      repeat match goal with
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => (revert H; case_eq E; intros)
+               | _ => progress cleanup
+               | _ => progress destruct_head option
+               | [ H : (_, _)
+             end.
+      rewrite M.map2_1.
+      intros.
+      unfold find,
+
+      admit.
+    Qed.
+
+    Lemma merge_find_2 : forall k v m1 m2, find k m1 = None -> find k m2 = Some v -> find k (merge m1 m2) = Some v.
+    Proof.
+      admit.
+    Qed.
+
+
   Definition from_elements (
 
   Local Instance Serializable_map {elt} `{Serializable elt} : Serializable (t elt)
@@ -832,59 +924,3 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
   Defined.
 
 End MakeSerializableMergableMap.
-
-Static signature for Weak Maps
-Similar to WSfun but expressed in a self-contained way.
-
-Module Type WS.
-  Declare Module E : DecidableType.
-  Include WSfun E.
-End WS.
-
-Maps on ordered keys, functorial signature
-
-Module Type Sfun (E : OrderedType).
-  Include WSfun E.
-  Section elt.
-  Variable elt:Type.
-   Definition lt_key (p p':key*elt) := E.lt (fst p) (fst p').
-   Parameter elements_3 : forall m, sort lt_key (elements m).
-Remark: since fold is specified via elements, this stronger specification of elements has an indirect impact on fold, which can now be proved to receive elements in increasing order.
-  End elt.
-End MakeSerializableMergableMap.
-  Include Sfun E.
-
-
-  Section elt.
-    Variable elt : Type.
-
-    Parameter to_string : forall (elt_to_string : elt -> string),
-                            t elt -> string.
-
-    Parameter from_string : forall (elt_from_string : string -> option elt),
-                              string -> option (t elt).
-
-    Section laws.
-      Variable elt_to_string : elt -> string.
-      Variable elt_from_string : string -> option elt.
-
-      Axiom to_from_string
-      : (forall s, match elt_from_string s with
-                     | None => True
-                     | Some x => elt_to_string x = s
-                   end)
-        -> forall s, match from_string elt_from_string s with
-                       | None => True
-                       | Some x => to_string elt_to_string x = s
-                     end.
-      Axiom from_to_string
-      : (forall x, elt_from_string (elt_to_string x) = Some x)
-        -> forall x, from_string elt_from_string (to_string elt_to_string x) = Some x.
-    End laws.
-
-    Parameter update : key -> elt -> t elt -> t elt.
-    (** [update x y m] returns a map containing the same bindings as
-        [m], plus a binding of [x] to [y]. If [x] was already bound in
-        [m], its previous binding is merged with its new binding. *)
-  End elt.
-End SerializableMergableMapInterface.

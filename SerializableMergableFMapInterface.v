@@ -43,8 +43,9 @@ Module Type SerializableMergableMapInterface (E : SerializableOrderedType).
 
     Axiom merge_In_1 : forall k m1 m2, In k m1 -> In k m2 -> In k (merge m1 m2).
     Axiom merge_In_2 : forall k m1 m2, In k (merge m1 m2) -> In k m1 \/ In k m2.
-    Axiom merge_find_1 : forall k v m1 m2, find k m1 = Some v -> find k m2 = None -> find k (merge m1 m2) = Some v.
-    Axiom merge_find_2 : forall k v m1 m2, find k m1 = None -> find k m2 = Some v -> find k (merge m1 m2) = Some v.
+    Axiom merge_find_1 : forall k v m1 m2, find k m1 = Some v -> find k m2 = Some v -> find k (merge m1 m2) = Some v.
+    Axiom merge_find_2 : forall k v m1 m2, find k m1 = None -> find k (merge m1 m2) = Some v -> find k m2 = Some v.
+    Axiom merge_find_3 : forall k v m1 m2, find k m2 = None -> find k (merge m1 m2) = Some v -> find k m1 = Some v.
   End elt.
 
   Global Hint Extern 1 (Serializable (t _)) => apply Serializable_map : typeclass_instances.
