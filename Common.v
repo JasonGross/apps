@@ -1,4 +1,4 @@
-Require Import Coq.Lists.List Coq.Setoids.Setoid Coq.Program.Program.
+Require Import Coq.Lists.List Coq.Setoids.Setoid Coq.Program.Program Coq.Lists.SetoidList.
 
 Set Implicit Arguments.
 
@@ -118,12 +118,12 @@ Ltac destruct_exists := destruct_head_hnf @sigT;
     | [ |- @sigT2 ?T _ _ ] => destruct_exists' T
   end.
 
-(* [pose proof defn], but only if no hypothesis of the same type exists.
-   most useful for proofs of a proposition *)
+(** [pose proof defn], but only if no hypothesis of the same type
+    exists.  most useful for proofs of a proposition *)
 Tactic Notation "unique" "pose" "proof" constr(defn) :=
   let T := type of defn in
   match goal with
-    | [ H : T |- _ ] => fail 1
+    | [ H : T |- _ ] => fail 1 "Hypothesis" H "already has type" T
     | _ => pose proof defn
   end.
 
@@ -337,3 +337,43 @@ Tactic Notation "simpl" "rewrite" "<-" "?" open_constr(term) "in" hyp(hyp) "|-" 
 Tactic Notation "simpl" "rewrite"      "?" open_constr(term) "in" "*" "|-" := simpl_do_clear ltac:(fun H => rewrite    ?H in * |- ) term.
 Tactic Notation "simpl" "rewrite" "->" "?" open_constr(term) "in" "*" "|-" := simpl_do_clear ltac:(fun H => rewrite -> ?H in * |- ) term.
 Tactic Notation "simpl" "rewrite" "<-" "?" open_constr(term) "in" "*" "|-" := simpl_do_clear ltac:(fun H => rewrite <- ?H in * |- ) term.
+
+
+Ltac cleanup' :=
+  match goal with
+    | _ => reflexivity
+    | _ => assumption
+    | [ H : ?x = ?x |- _ ] => clear H
+    | [ H : true = false |- _ ] => solve [ inversion H ]
+    | [ H : false = true |- _ ] => solve [ inversion H ]
+    | [ H : Some _ = None |- _ ] => solve [ inversion H ]
+    | [ H : None = Some _ |- _ ] => solve [ inversion H ]
+    | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
+    | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
+    | [ H : inl _ = inl _ |- _ ] => (inversion H; clear H)
+    | [ H : inr _ = inr _ |- _ ] => (inversion H; clear H)
+    | [ H : eqlistA _ (_::_) _ |- _ ] => (inversion H; clear H)
+    | [ H : eqlistA _ _ (_::_) |- _ ] => (inversion H; clear H)
+    | [ |- Some _ = Some _ ] => apply f_equal
+    | [ |- _ /\ _ ] => split
+    | [ |- (_, _) = (_, _) ] => apply injective_projections
+    | [ H : ?x = Some _, H' : appcontext[?x] |- _ ]
+      => let h := head x in not constr_eq h (@Some); rewrite H in H'
+    | [ H : ?x = None, H' : appcontext[?x] |- _ ]
+      => let h := head x in not constr_eq h (@None); rewrite H in H'
+    | [ H : ?x = Some _ |- appcontext[?x] ]
+      => let h := head x in not constr_eq h (@Some); rewrite H
+    | [ H : ?x = None |- appcontext[?x] ]
+      => let h := head x in not constr_eq h (@None); rewrite H
+    | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+    | _ => progress subst
+    | _ => progress split_and
+    | _ => progress destruct_head and
+    | _ => progress destruct_head prod
+    | _ => progress destruct_head unit
+    | _ => progress destruct_head True
+    | _ => progress destruct_head False
+    | _ => progress destruct_head Empty_set
+  end.
+
+Ltac cleanup := repeat cleanup'.

@@ -8,45 +8,6 @@ Local Open Scope list_scope.
 Local Open Scope bool_scope.
 Local Open Scope string_scope.
 
-Local Ltac cleanup' :=
-  match goal with
-    | _ => reflexivity
-    | _ => assumption
-    | [ H : ?x = ?x |- _ ] => clear H
-    | [ H : true = false |- _ ] => solve [ inversion H ]
-    | [ H : false = true |- _ ] => solve [ inversion H ]
-    | [ H : Some _ = None |- _ ] => solve [ inversion H ]
-    | [ H : None = Some _ |- _ ] => solve [ inversion H ]
-    | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
-    | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
-    | [ H : inl _ = inl _ |- _ ] => (inversion H; clear H)
-    | [ H : inr _ = inr _ |- _ ] => (inversion H; clear H)
-    | [ H : eqlistA _ (_::_) _ |- _ ] => (inversion H; clear H)
-    | [ H : eqlistA _ _ (_::_) |- _ ] => (inversion H; clear H)
-    | [ |- Some _ = Some _ ] => apply f_equal
-    | [ |- _ /\ _ ] => split
-    | [ |- (_, _) = (_, _) ] => apply injective_projections
-    | [ H : ?x = Some _, H' : appcontext[match ?x with _ => _ end] |- _ ]
-      => rewrite H in H'
-    | [ H : ?x = None, H' : appcontext[match ?x with _ => _ end] |- _ ]
-      => rewrite H in H'
-    | [ H : ?x = Some _, H' : appcontext[?x] |- _ ]
-      => let h := head x in not constr_eq h (@Some); rewrite H in H'
-    | [ H : ?x = None, H' : appcontext[?x] |- _ ]
-      => let h := head x in not constr_eq h (@None); rewrite H in H'
-    | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
-    | _ => progress subst
-    | _ => progress split_and
-    | _ => progress destruct_head and
-    | _ => progress destruct_head prod
-    | _ => progress destruct_head unit
-    | _ => progress destruct_head True
-    | _ => progress destruct_head False
-    | _ => progress destruct_head Empty_set
-  end.
-
-Local Ltac cleanup := repeat cleanup'.
-
 Lemma from_to_string_append_1 {A R} `{PrefixSerializable A R} x s : option_lift_relation R (fst (from_string (to_string x ++ s))) (Some x).
 Proof.
   apply prefix_closed_1.

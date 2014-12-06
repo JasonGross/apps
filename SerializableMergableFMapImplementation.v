@@ -48,47 +48,6 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
                => unique pose proof (M.add_2 e' H H')
            end.
 
-  Local Ltac cleanup' :=
-    match goal with
-      | _ => reflexivity
-      | _ => assumption
-      | [ H : ?x = ?x |- _ ] => clear H
-      | [ H : true = false |- _ ] => solve [ inversion H ]
-      | [ H : false = true |- _ ] => solve [ inversion H ]
-      | [ H : Some _ = None |- _ ] => solve [ inversion H ]
-      | [ H : None = Some _ |- _ ] => solve [ inversion H ]
-      | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
-      | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
-      | [ H : inl _ = inl _ |- _ ] => (inversion H; clear H)
-      | [ H : inr _ = inr _ |- _ ] => (inversion H; clear H)
-      | [ H : eqlistA _ (_::_) _ |- _ ] => (inversion H; clear H)
-      | [ H : eqlistA _ _ (_::_) |- _ ] => (inversion H; clear H)
-      | [ |- Some _ = Some _ ] => apply f_equal
-      | [ |- _ /\ _ ] => split
-      | [ |- (_, _) = (_, _) ] => apply injective_projections
-      | [ H : ?x = Some _, H' : appcontext[match ?x with _ => _ end] |- _ ]
-        => rewrite H in H'
-      | [ H : ?x = None, H' : appcontext[match ?x with _ => _ end] |- _ ]
-        => rewrite H in H'
-      | [ H : ?x = Some _, H' : appcontext[?x] |- _ ]
-        => let h := head x in not constr_eq h (@Some); rewrite H in H'
-      | [ H : ?x = None, H' : appcontext[?x] |- _ ]
-        => let h := head x in not constr_eq h (@None); rewrite H in H'
-      | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
-      | _ => progress subst
-      | _ => progress split_and
-      | _ => progress destruct_head and
-      | _ => progress destruct_head prod
-      | _ => progress destruct_head unit
-      | _ => progress destruct_head True
-      | _ => progress destruct_head False
-      | _ => progress destruct_head Empty_set
-    end.
-
-  Local Ltac cleanup := repeat cleanup'.
-
-
-
   Section elt.
     Variable elt : Type.
 
@@ -135,10 +94,19 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     Definition map2 (f : option elt -> option elt' -> option elt'') (m : t elt) (m' : t elt') : t elt''
       := M.map2 (fun v1 v2 =>
                    match v1, v2 with
-                     | Some (gen1, v1'), Some (gen2, v2') => option_map (pair (max gen1 gen2)) (option_map Some (f v1' v2'))
-                     | Some (gen1, v1'), None => option_map (pair gen1) (option_map Some (f v1' None))
-                     | None, Some (gen2, v2') => option_map (pair gen2) (option_map Some (f None v2'))
-                     | None, None => option_map (pair 0) (option_map Some (f None None))
+                     | Some (gen1, None), Some (gen2, None)
+                       => Some (max gen1 gen2, None)
+                     | Some (gen1, v1'), Some (gen2, v2')
+                       => Some (max gen1 gen2, f v1' v2')
+                     | Some (gen1, None), None
+                       => Some (gen1, None)
+                     | Some (gen1, v1'), None
+                       => Some (gen1, f v1' None)
+                     | None, Some (gen2, None)
+                       => Some (gen2, None)
+                     | None, Some (gen2, v2')
+                       => Some (gen2, f None v2')
+                     | None, None => None
                    end)
                 m m'.
 
@@ -714,11 +682,12 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
   Proof.
     unfold key, t, map2, In, MapsTo, find.
     intros; rewrite M.map2_1.
-    { do 2 edestruct @M.find;
-      destruct_head prod;
+    { destruct_head or;
+      destruct_head ex;
+      add_facts; cleanup;
+      do 2 edestruct @M.find;
+      cleanup;
       destruct_head option;
-      unfold option_map;
-      simpl;
       match goal with
         | [ |- appcontext[match ?E with _ => _ end] ] => destruct E; reflexivity
       end. }
@@ -742,48 +711,33 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
           case_eq (M.find x m');
           intros
     end;
-    destruct_head or;
-    destruct_head_hnf ex;
-    destruct_head prod;
-    destruct_head option;
-    try solve [ left; repeat esplit; eassumption
-              | right; repeat esplit; eassumption ];
-    (lazymatch goal with
-    | [ H : M.MapsTo ?x (_, None) ?m, H' : M.find ?x ?m = Some (_, Some _) |- _ ]
-      => (exfalso; revert H H'; clear;
-          intros;
-          add_facts;
-          congruence)
-    | _ => idtac
-     end);
-    try solve [ left; repeat esplit; apply M.find_2; eassumption
-              | right; repeat esplit; apply M.find_2; eassumption ];
-    exfalso;
-    admit;
-    (lazymatch goal with
-    | [ H : M.MapsTo ?x (_, None) _, H' : M.MapsTo ?x (?g, Some ?v) (M.map2 ?f ?m ?m') |- _ ]
-      => (first [ pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_introl (ex_intro _ h i))) as H'';
-                  specialize (H'' _ _ _ m m' _ f _ H)
-                | pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_intror (ex_intro _ h i))) as H'';
-                  specialize (H'' _ _ _ m m' _ f _ H) ];
-          let f' := fresh in
-          let H''' := fresh in
-          set (f' := f) in *;
-            assert (H''' : id (f = f')) by reflexivity;
-          clearbody f')
-     end);
-    destruct_head ex;
-    destruct_head and;
-    add_facts;
-    admit;
-    repeat match goal with
-               | [ H : ?x = ?x |- _ ] => clear H
-               | [ H : ?x = Some _, H' : appcontext[?x] |- _ ] => rewrite H in H'
-             end;
-    admit;
-    unfold id, option_map in *; simpl in *; subst; simpl;
-    admit;
-    congruence.
+      destruct_head or;
+      destruct_head_hnf ex;
+      destruct_head prod;
+      destruct_head option;
+      try solve [ left; repeat esplit; eassumption
+                | right; repeat esplit; eassumption ];
+      (lazymatch goal with
+      | [ H : M.MapsTo ?x (_, None) ?m, H' : M.find ?x ?m = Some (_, Some _) |- _ ]
+        => (exfalso; revert H H'; clear;
+            intros;
+            add_facts;
+            congruence)
+      | [ H : M.MapsTo ?x (_, _) ?m, H' : M.find ?x ?m = None |- _ ]
+        => (exfalso; revert H H'; clear;
+            intros;
+            add_facts;
+            congruence)
+      | _ => idtac
+       end);
+      try solve [ left; repeat esplit; apply M.find_2; eassumption
+                | right; repeat esplit; apply M.find_2; eassumption ];
+      try match goal with
+            | [ H : M.MapsTo _ _ (M.map2 _ _ _) |- _ ]
+              => apply M.find_1 in H;
+                rewrite M.map2_1 in H by constructor (repeat esplit; apply M.find_2; eassumption)
+          end;
+      cleanup.
   Qed.
 
   Definition lt_key := M.lt_key.
@@ -848,39 +802,180 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
 
     Lemma merge_In_1 : forall k m1 m2, In k m1 -> In k m2 -> In k (merge m1 m2).
     Proof.
-      admit.
+      unfold In, merge, MapsTo.
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress destruct_head ex
+               | [ H : M.MapsTo _ _ _ |- _ ] => unique pose proof (M.find_1 H)
+               | _ => setoid_rewrite <- (@M.find_2 : forall a b c d, impl _ _)
+               | _ => rewrite M.map2_1
+               | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E
+               | _ => solve [ repeat esplit
+                            | left; repeat esplit; eassumption
+                            | right; repeat esplit; eassumption ]
+             end.
     Qed.
 
     Lemma merge_In_2 : forall k m1 m2, In k (merge m1 m2) -> In k m1 \/ In k m2.
     Proof.
-      admit.
+      unfold In, merge, MapsTo.
+      intros; destruct_head ex.
+      (lazymatch goal with
+        | [ H : M.MapsTo ?k ?v (M.map2 ?f ?m1 ?m2) |- _ ]
+          => (idtac;
+              let T := constr:(fun a b c d e f' g h i => @M.map2_2 a b c d e f' g (ex_intro _ h i)) in
+              let H' := fresh in
+              pose proof (M.map2_1 f (T _ _ _ _ _ _ _ _ H)) as H';
+              apply M.find_1 in H;
+              simpl in *;
+                rewrite H' in H)
+       end).
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress destruct_head_hnf ex
+               | _ => progress destruct_head or
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | _ => setoid_rewrite <- (@M.find_2 : forall a b c d, impl _ _)
+               | _ => solve [ repeat esplit
+                            | left; repeat esplit; eassumption
+                            | right; repeat esplit; eassumption ]
+             end.
     Qed.
 
-    Lemma merge_find_1 : forall k v m1 m2, find k m1 = Some v -> find k m2 = None -> find k (merge m1 m2) = Some v.
+    Lemma merge_find_1 : forall k v m1 m2, find k m1 = Some v -> find k m2 = Some v -> find k (merge m1 m2) = Some v.
     Proof.
       unfold find, merge.
-      intros.
       repeat match goal with
-               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
-                 => (revert H; case_eq E; intros)
+               | _ => intro
                | _ => progress cleanup
-               | _ => progress destruct_head option
-               | [ H : (_, _)
+               | _ => progress destruct_head_hnf ex
+               | _ => progress destruct_head or
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
+               | _ => setoid_rewrite <- (@M.find_2 : forall a b c d, impl _ _)
+               | _ => rewrite M.map2_1
+               | _ => solve [ repeat esplit
+                            | left; repeat esplit; eassumption
+                            | right; repeat esplit; eassumption ]
+             end;
+      repeat match goal with
+               | [ H : M.find ?x ?m = Some ?e |- _ ]
+                 => unique pose proof (M.find_2 H)
+               | [ H : M.MapsTo ?k ?v ?m |- _ ]
+                 => unique pose proof (ex_intro (fun v => M.MapsTo k v m) v H : M.In k m)
+               | [ H : context[M.map2 ?f ?m1 ?m2], H' : M.In ?k ?m1 |- _ ]
+                 => unique pose proof (M.map2_1 (m := m1) (m' := m2) f (or_introl H'))
+               | [ H : context[M.map2 ?f ?m1 ?m2], H' : M.In ?k ?m2 |- _ ]
+                 => unique pose proof (M.map2_1 (m := m1) (m' := m2) f (or_intror H'))
+             end;
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress simpl in *
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
              end.
-      rewrite M.map2_1.
-      intros.
-      unfold find,
-
-      admit.
     Qed.
 
-    Lemma merge_find_2 : forall k v m1 m2, find k m1 = None -> find k m2 = Some v -> find k (merge m1 m2) = Some v.
+    Lemma merge_find_2 : forall k v m1 m2, find k m1 = None -> find k (merge m1 m2) = Some v -> find k m2 = Some v.
     Proof.
-      admit.
+      unfold find, merge.
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress destruct_head_hnf ex
+               | _ => progress destruct_head or
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
+               | _ => setoid_rewrite <- (@M.find_2 : forall a b c d, impl _ _)
+               | _ => rewrite M.map2_1
+               | _ => solve [ repeat esplit
+                            | left; repeat esplit; eassumption
+                            | right; repeat esplit; eassumption ]
+             end;
+      repeat match goal with
+               | [ H : M.find ?x ?m = Some ?e |- _ ]
+                 => unique pose proof (M.find_2 H)
+               | [ H : M.MapsTo ?k ?v ?m |- _ ]
+                 => unique pose proof (ex_intro (fun v => M.MapsTo k v m) v H : M.In k m)
+               | [ H : context[M.map2 ?f ?m1 ?m2], H' : M.In ?k ?m1 |- _ ]
+                 => unique pose proof (M.map2_1 (m := m1) (m' := m2) f (or_introl H'))
+               | [ H' : M.In ?k (M.map2 ?f ?m1 ?m2) |- _ ]
+                 => unique pose proof (M.map2_2 H')
+               | [ H : context[M.map2 ?f ?m1 ?m2], H' : M.In ?k ?m2 |- _ ]
+                 => unique pose proof (M.map2_1 (m := m1) (m' := m2) f (or_intror H'))
+             end;
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress simpl in *
+               | _ => progress destruct_head or
+               | _ => progress destruct_head_hnf ex
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
+             end;
+      repeat match goal with
+               | [ H : appcontext[M.map2] |- _ ] => clear H
+             end;
+      add_facts; cleanup.
     Qed.
 
-
-  Definition from_elements (
+    Lemma merge_find_3 : forall k v m1 m2, find k m2 = None -> find k (merge m1 m2) = Some v -> find k m1 = Some v.
+      unfold find, merge.
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress destruct_head_hnf ex
+               | _ => progress destruct_head or
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
+               | _ => setoid_rewrite <- (@M.find_2 : forall a b c d, impl _ _)
+               | _ => rewrite M.map2_1
+               | _ => solve [ repeat esplit
+                            | left; repeat esplit; eassumption
+                            | right; repeat esplit; eassumption ]
+             end;
+      repeat match goal with
+               | [ H : M.find ?x ?m = Some ?e |- _ ]
+                 => unique pose proof (M.find_2 H)
+               | [ H : M.MapsTo ?k ?v ?m |- _ ]
+                 => unique pose proof (ex_intro (fun v => M.MapsTo k v m) v H : M.In k m)
+               | [ H : context[M.map2 ?f ?m1 ?m2], H' : M.In ?k ?m1 |- _ ]
+                 => unique pose proof (M.map2_1 (m := m1) (m' := m2) f (or_introl H'))
+               | [ H' : M.In ?k (M.map2 ?f ?m1 ?m2) |- _ ]
+                 => unique pose proof (M.map2_2 H')
+               | [ H : context[M.map2 ?f ?m1 ?m2], H' : M.In ?k ?m2 |- _ ]
+                 => unique pose proof (M.map2_1 (m := m1) (m' := m2) f (or_intror H'))
+             end;
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress simpl in *
+               | _ => progress destruct_head or
+               | _ => progress destruct_head_hnf ex
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
+             end;
+      repeat match goal with
+               | [ H : appcontext[M.map2] |- _ ] => clear H
+             end;
+      add_facts; cleanup.
+    Qed.
 
   Local Instance Serializable_map {elt} `{Serializable elt} : Serializable (t elt)
     := {| to_string x := to_string (M.elements x) |}.
