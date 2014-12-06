@@ -1,4 +1,5 @@
 Require Import Coq.Strings.String Coq.Numbers.Natural.Peano.NPeano Coq.NArith.BinNat Coq.omega.Omega.
+Require Export PrefixSerializableDefinitions.
 Require Import Common.
 
 Set Implicit Arguments.
@@ -6,12 +7,6 @@ Set Implicit Arguments.
 Local Open Scope list_scope.
 Local Open Scope bool_scope.
 Local Open Scope string_scope.
-
-Class PrefixSerializable A :=
-  { to_string : A -> string;
-    from_string : string -> option A * string;
-    from_to_string : forall x, from_string (to_string x) = (Some x, "");
-    prefix_closed : forall s1 s2 x, fst (from_string s1) = Some x -> from_string (s1 ++ s2) = (Some x, snd (from_string s1) ++ s2) }.
 
 Lemma from_to_string_append {A} `{PrefixSerializable A} x s : from_string (to_string x ++ s) = (Some x, s).
 Proof.
@@ -21,15 +16,15 @@ Qed.
 Local Arguments Ascii.ascii_dec !_ !_ / .
 
 Instance PrefixSerializable_bool : PrefixSerializable bool
-  := {| to_string b := if b then "1" else "0";
-        from_string x := match x with
-                           | "" => (None, "")
-                           | String a s' => if Ascii.ascii_dec a "1"
-                                            then (Some true, s')
-                                            else if Ascii.ascii_dec a "0"
-                                                 then (Some false, s')
-                                                 else (None, x)
-                         end |}.
+  := {| serialize := {| to_string b := if b : bool then "1" else "0" |};
+        deserialize := {| from_string x := match x with
+                                             | "" => (None, "")
+                                             | String a s' => if Ascii.ascii_dec a "1"
+                                                              then (Some true, s')
+                                                              else if Ascii.ascii_dec a "0"
+                                                                   then (Some false, s')
+                                                                   else (None, x)
+                                           end |} |}.
 Proof.
   intros []; reflexivity.
   abstract (
@@ -38,6 +33,7 @@ Proof.
                | _ => reflexivity
                | [ b : bool |- _ ] => destruct b
                | _ => progress simpl in *
+               | _ => progress unfold from_string, to_string in *
                | _ => progress subst
                | [ H : None = Some _ |- _ ] => solve [ inversion H ]
                | [ H : false = true |- _ ] => solve [ inversion H ]
@@ -51,6 +47,8 @@ Proof.
              end
     ).
 Defined.
+
+Local Opaque PrefixSerializable_bool.
 
 Fixpoint string_of_Npositive (n : positive) : string :=
   match n with
@@ -216,12 +214,12 @@ Proof.
 Qed.
 
 Instance PrefixSerializable_N : PrefixSerializable N
-  := {| to_string := string_of_N;
-        from_string := N_of_string |}.
+  := {| serialize := {| to_string := string_of_N |};
+        deserialize := {| from_string := N_of_string |} |}.
 Proof.
   intros; apply N_of_string_of_string_of_N.
   abstract (
-      unfold N_of_string;
+      unfold to_string, from_string, N_of_string;
       intro s1; set (so_far := 0%N); set (acc := ""); generalize so_far; generalize acc; clear; induction s1;
       repeat match goal with
                | _ => progress simpl in *
@@ -238,19 +236,20 @@ Proof.
     ).
 Defined.
 
+Local Opaque PrefixSerializable_N.
+
 Definition prod_map {A A' B B'} (f : A -> A') (g : B -> B') : A * B -> A' * B'
   := fun xy => (f (fst xy), g (snd xy)).
 
 Arguments prod_map / .
 
 Instance PrefixSerializable_nat : PrefixSerializable nat
-  := {| to_string x := to_string (N.of_nat x);
-        from_string x := prod_map (option_map N.to_nat) (fun x => x) (from_string x) |}.
+  := {| serialize := {| to_string x := to_string (N.of_nat x) |};
+        deserialize := {| from_string x := prod_map (option_map N.to_nat) (fun x => x) (from_string x) |} |}.
 Proof.
-  abstract (intro; rewrite from_to_string; simpl; rewrite Nnat.Nat2N.id; reflexivity).
-
+  abstract (intro; simpl rewrite (@from_to_string N _); simpl; rewrite Nnat.Nat2N.id; reflexivity).
   abstract (
-      intros; simpl prod_map in *; cbv beta in *; change (fst (?a, ?b)) with a in *; apply f_equal2;
+      intros; simpl prod_map in *; cbv beta in *; apply injective_projections; simpl;
       [
       | match goal with
           | [ H : appcontext[from_string ?s1] |- _ ] => atomic s1; revert H; case_eq (from_string s1); intros
@@ -263,7 +262,7 @@ Proof.
       solve [ repeat match goal with
                        | _ => reflexivity
                        | _ => eassumption
-                       | [ H : context[N_of_string ?s] |- context[N_of_string ?s] ] => destruct (N_of_string s)
+                       | [ H : context[from_string ?s] |- context[from_string ?s] ] => destruct (from_string s)
                        | _ => progress simpl in *
                        | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
                        | [ |- Some _ = Some _ ] => apply f_equal
@@ -277,6 +276,8 @@ Proof.
                      end ]
     ).
 Defined.
+
+Local Opaque PrefixSerializable_nat.
 
 Lemma leb_xx x : x <=? x = true.
 Proof.
@@ -342,14 +343,14 @@ Proof.
 Qed.
 
 Instance PrefixSerializable_string : PrefixSerializable string
-  := {| to_string x := to_string (String.length x) ++ x;
-        from_string x := let nx := from_string (A := nat) x in
-                         match fst nx with
-                           | Some n => if (n <=? String.length (snd nx))
-                                       then (Some (substring 0 n (snd nx)), string_drop n (snd nx))
-                                       else (None, x)
-                           | None => (None, (snd nx))
-                         end |}.
+  := {| serialize := {| to_string x := to_string (String.length x) ++ x |};
+        deserialize := {| from_string x := let nx := from_string (A := nat) x in
+                                           match fst nx with
+                                             | Some n => if (n <=? String.length (snd nx))
+                                                         then (Some (substring 0 n (snd nx)), string_drop n (snd nx))
+                                                         else (None, x)
+                                             | None => (None, (snd nx))
+                                           end |} |}.
 Proof.
   abstract (
       intro x; induction x; trivial;
@@ -359,6 +360,8 @@ Proof.
                | [ H : _ |- _ ] => progress rewrite ?from_to_string_append in H |- *
                | [ H : _ |- _ ] => progress rewrite ?leb_xx in H |- *
                | _ => progress simpl in *
+               | _ => progress change (@serialize) with (fun A x => @to_string A _)
+               | _ => progress unfold from_string, to_string in *
                | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
                | [ |- Some _ = Some _ ] => apply f_equal
                | _ => progress subst
@@ -396,44 +399,48 @@ Proof.
     ).
 Defined.
 
+Local Opaque PrefixSerializable_string.
+
 Instance PrefixSerializable_unit : PrefixSerializable unit
-  := {| to_string x := "";
-        from_string s := (Some tt, s) |}.
+  := {| serialize := {| to_string x := "" |};
+        deserialize := {| from_string s := (Some tt, s) |} |}.
 Proof.
   intros []; reflexivity.
   intros ? ? []; reflexivity.
 Defined.
 
 Instance PrefixSerializable_True : PrefixSerializable True
-  := {| to_string x := "";
-        from_string s := (Some I, s) |}.
+  := {| serialize := {| to_string x := "" |};
+        deserialize := {| from_string s := (Some I, s) |} |}.
 Proof.
   intros []; reflexivity.
   intros ? ? []; reflexivity.
 Defined.
 
 Instance PrefixSerializable_Empty : PrefixSerializable Empty_set
-  := {| to_string x := "";
-        from_string s := (None, s) |}.
+  := {| serialize := {| to_string x := "" |};
+        deserialize := {| from_string s := (None, s) |} |}.
 Proof.
   intros [].
   intros ? ? [].
 Defined.
 
 Instance PrefixSerializable_False : PrefixSerializable False
-  := {| to_string x := "";
-        from_string s := (None, s) |}.
+  := {| serialize := {| to_string x := "" |};
+        deserialize := {| from_string s := (None, s) |} |}.
 Proof.
   intros [].
   intros ? ? [].
 Defined.
 
-Instance PrefixSerializable_sum {A B} `{PrefixSerializable A, PrefixSerializable B} : PrefixSerializable (A + B)
+Definition Serializable_sum {A B} `{Serializable A, Serializable B} : Serializable (A + B)
   := {| to_string x := match x with
                          | inl x' => "L" ++ to_string x'
                          | inr x' => "R" ++ to_string x'
-                       end;
-        from_string s := match s with
+                       end |}.
+
+Definition Deserializable_sum {A B} `{Deserializable A, Deserializable B} : Deserializable (A + B)
+  := {| from_string s := match s with
                            | "" => (None, "")
                            | String a s' => if Ascii.ascii_dec a "L"
                                             then prod_map (option_map (@inl _ _)) id (from_string s')
@@ -441,7 +448,13 @@ Instance PrefixSerializable_sum {A B} `{PrefixSerializable A, PrefixSerializable
                                                  then prod_map (option_map (@inr _ _)) id (from_string s')
                                                  else (None, String a s')
                          end |}.
+
+Hint Extern 2 (Deserializable (sum _ _)) => apply Deserializable_sum : typeclass_instances.
+Hint Extern 2 (Serializable (sum _ _)) => apply Serializable_sum : typeclass_instances.
+
+Definition PrefixSerializable_sum {A B} `{PrefixSerializable A, PrefixSerializable B} : PrefixSerializable (A + B).
 Proof.
+  refine {| serialize := _; deserialize := _ |}.
   abstract (intros [x|x]; simpl; rewrite from_to_string; simpl; trivial).
   abstract (
       intros [|a s1] ? [x|x]; simpl; intros;
@@ -467,23 +480,33 @@ Proof.
     ).
 Defined.
 
-Arguments from_string {_ _} !_ / .
-Arguments to_string {_ _} !_ / .
+Hint Extern 2 (PrefixSerializable (sum _ _)) => apply PrefixSerializable_sum : typeclass_instances.
 
-Instance PrefixSerializable_option {A} `{PrefixSerializable A} : PrefixSerializable (option A)
+Local Opaque Serializable_sum.
+Local Opaque Deserializable_sum.
+
+Definition Serializable_option {A} `{Serializable A} : Serializable (option A)
   := {| to_string x := to_string (match x return A + unit with
                                     | Some x' => inl x'
                                     | None => inr tt
-                                  end);
-        from_string x := let fs := from_string x in
+                                  end) |}.
+
+Definition Deserializable_option {A} `{Deserializable A} : Deserializable (option A)
+  := {| from_string x := let fs := from_string x in
                          (match fst fs with
                             | Some (inl s) => Some (Some s)
                             | Some (inr tt) => Some None
                             | None => None
                           end,
                           snd fs) |}.
+
+Hint Extern 1 (Deserializable (option _)) => apply Deserializable_option : typeclass_instances.
+Hint Extern 1 (Serializable (option _)) => apply Serializable_option : typeclass_instances.
+
+Definition PrefixSerializable_option {A} `{PrefixSerializable A} : PrefixSerializable (option A).
 Proof.
-  abstract (intro; rewrite from_to_string; destruct_head option; trivial).
+  refine {| serialize := _; deserialize := _ |}.
+  abstract (intro; simpl rewrite (@from_to_string (A + unit) _); destruct_head option; trivial).
   abstract (
       intro s1; cbv zeta; case_eq (fst (from_string (A := A + unit) s1)); [ intros [?|?] | ];
       repeat match goal with
@@ -491,25 +514,45 @@ Proof.
                | [ H : Some _ = Some _ |- _ ] => (inversion H; clear H)
                | _ => progress subst
                | _ => progress simpl in *
+               | [ H : ?x = Some _, H' : appcontext[match ?x with _ => _ end] |- _ ] => rewrite H in H'
+               | [ H : ?x = None, H' : appcontext[match ?x with _ => _ end] |- _ ] => rewrite H in H'
                | [ H : None = Some _ |- _ ] => solve [ inversion H ]
                | _ => reflexivity
                | _ => progress destruct_head unit
-               | _ => erewrite prefix_closed by eassumption
+               | _ => let H := fresh in
+                      pose proof (@prefix_closed (A + unit) _) as H;
+                        simpl in H |- *;
+                          erewrite H by eassumption
              end
     ).
 Defined.
 
-Instance PrefixSerializable_prod {A B} `{PrefixSerializable A, PrefixSerializable B}
-: PrefixSerializable (A * B)
-  := {| to_string x := to_string (fst x) ++ to_string (snd x);
-        from_string x := let fs := from_string x in
+Hint Extern 1 (PrefixSerializable (option _)) => apply PrefixSerializable_option : typeclass_instances.
+
+Local Opaque Serializable_option.
+Local Opaque Deserializable_option.
+
+Definition Serializable_prod {A B} `{Serializable A, Serializable B}
+: Serializable (A * B)
+  := {| to_string x := to_string (fst x) ++ to_string (snd x) |}.
+
+Definition Deserializable_prod {A B} `{Deserializable A, Deserializable B}
+: Deserializable (A * B)
+  := {| from_string x := let fs := from_string x in
                          let fs' := from_string (snd fs) in
                          match fst fs, fst fs' with
                            | Some a, Some b => (Some (a, b), snd fs')
                            | _, _ => (None, x)
                          end |}.
+
+Hint Extern 2 (Deserializable (prod _ _)) => apply Deserializable_prod : typeclass_instances.
+Hint Extern 2 (Serializable (prod _ _)) => apply Serializable_prod : typeclass_instances.
+
+Definition PrefixSerializable_prod {A B} `{PrefixSerializable A, PrefixSerializable B}
+: PrefixSerializable (A * B).
 Proof.
-  abstract (intros [??]; rewrite from_to_string_append; simpl; rewrite from_to_string; simpl; trivial).
+  refine {| serialize := _; deserialize := _ |}.
+  abstract (intros [??]; simpl rewrite (@from_to_string_append A _); simpl; rewrite from_to_string; simpl; trivial).
   abstract (
       simpl; intro s1;
       case_eq (fst (from_string (A := A) s1)); simpl;
@@ -527,16 +570,21 @@ Proof.
     ).
 Defined.
 
-Fixpoint list_to_string_helper {A} `{PrefixSerializable A} (ls : list A) : string :=
+Hint Extern 2 (PrefixSerializable (prod _ _)) => apply PrefixSerializable_prod : typeclass_instances.
+
+Local Opaque Serializable_prod.
+Local Opaque Deserializable_prod.
+
+Fixpoint list_to_string_helper {A} `{Serializable A} (ls : list A) : string :=
   match ls with
     | nil => ""
     | x::xs => to_string x ++ list_to_string_helper xs
   end.
 
-Definition list_to_string {A} `{PrefixSerializable A} (ls : list A) : string :=
+Definition list_to_string {A} `{Serializable A} (ls : list A) : string :=
   to_string (List.length ls) ++ list_to_string_helper ls.
 
-Fixpoint list_from_string_helper {A} `{PrefixSerializable A} n (s : string) : option (list A) * string :=
+Fixpoint list_from_string_helper {A} `{Deserializable A} n (s : string) : option (list A) * string :=
   match n with
     | 0 => (Some nil, s)
     | S n' => let fs := from_string s in
@@ -575,7 +623,7 @@ Proof.
            end.
 Qed.
 
-Definition list_from_string {A} `{PrefixSerializable A} (s : string) : option (list A) * string :=
+Definition list_from_string {A} `{Deserializable A} (s : string) : option (list A) * string :=
   let fs := from_string (A := nat) s in
   match fst fs with
     | Some n => list_from_string_helper n (snd fs)
@@ -585,13 +633,19 @@ Definition list_from_string {A} `{PrefixSerializable A} (s : string) : option (l
 Arguments list_from_string / .
 Arguments list_to_string / .
 
-Local Opaque from_string.
+Definition Serializable_list {A} `{Serializable A} : Serializable (list A)
+  := {| to_string x := list_to_string x |}.
 
-Instance PrefixSerializable_list {A} `{PrefixSerializable A} : PrefixSerializable (list A)
-  := {| to_string x := list_to_string x;
-        from_string x := list_from_string x |}.
+Definition Deserializable_list {A} `{Deserializable A} : Deserializable (list A)
+  := {| from_string x := list_from_string x |}.
+
+Hint Extern 1 (Deserializable (list _)) => apply Deserializable_list : typeclass_instances.
+Hint Extern 1 (Serializable (list _)) => apply Serializable_list : typeclass_instances.
+
+Definition PrefixSerializable_list {A} `{PrefixSerializable A} : PrefixSerializable (list A).
 Proof.
-  unfold list_from_string, list_to_string.
+  refine {| serialize := _ |}.
+  unfold to_string, from_string; simpl; unfold list_from_string, list_to_string.
   abstract (
       intro x; induction x; trivial;
       repeat match goal with
@@ -601,7 +655,7 @@ Proof.
                | [ H : _ |- _ ] => rewrite H; reflexivity
              end
     ).
-  unfold list_from_string, list_to_string.
+  unfold to_string, from_string; simpl; unfold list_from_string, list_to_string.
   abstract (
       intro s1;
       case_eq (fst (from_string (A := nat) s1));
@@ -619,3 +673,8 @@ Proof.
              end
     ).
 Defined.
+
+Hint Extern 1 (PrefixSerializable (list _)) => apply PrefixSerializable_list : typeclass_instances.
+
+Local Opaque Serializable_list.
+Local Opaque Deserializable_list.

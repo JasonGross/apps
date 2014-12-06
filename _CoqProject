@@ -8,6 +8,7 @@ EncryptionInterface.v
 TrustedEncryptBox.v
 TrustedDecryptBox.v
 SecurityExamples.v
+PrefixSerializableDefinitions.v
 PrefixSerializable.v
 PiCalculus.v
 PiCalculus2.v

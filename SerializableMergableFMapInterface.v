@@ -1,11 +1,10 @@
 Require Import Coq.Strings.String Coq.FSets.FMapInterface.
+Require Import PrefixSerializableDefinitions.
 
 Module Type SerializableOrderedType.
   Include OrderedType.OrderedType.
-  Parameter to_string : t -> string.
-  Parameter from_string : string -> option t.
-  Axiom to_from_string : forall s, match from_string s with None => True | Some x => to_string x = s end.
-  Axiom from_to_string : forall x, from_string (to_string x) = Some x.
+  Parameter PrefixSerializable_ord : PrefixSerializable t.
+  Global Existing Instance PrefixSerializable_ord.
 End SerializableOrderedType.
 
 Module Type SerializableMergableMapInterface (E : SerializableOrderedType).
@@ -15,20 +14,8 @@ Module Type SerializableMergableMapInterface (E : SerializableOrderedType).
   Section elt.
     Variable elt : Type.
 
-    Parameter to_string : forall (elt_to_string : elt -> string),
-                            t elt -> string.
-
-    Parameter from_string : forall (elt_from_string : string -> option elt),
-                              string -> option (t elt).
-
-    Section laws.
-      Variable elt_to_string : elt -> string.
-      Variable elt_from_string : string -> option elt.
-
-      Axiom from_to_string
-      : (forall x, elt_from_string (elt_to_string x) = Some x)
-        -> forall x, from_string elt_from_string (to_string elt_to_string x) = Some x.
-    End laws.
+    Parameter PrefixSerializable_map : forall `{PrefixSerializable elt}, PrefixSerializable (t elt).
+    Global Existing Instance PrefixSerializable_map.
 
     Parameter merge : t elt -> t elt -> t elt.
 
