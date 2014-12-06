@@ -695,59 +695,54 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     intros ? ? ? ? ? ? ? [v [gen H]].
     pose proof (fun a b c d e f g h i => @M.map2_2 a b c d e f g (ex_intro _ h i)) as H'; simpl in H'.
     specialize (H' _ _ _ _ _ _ _ _ H).
-    destruct_head or; [ left | right ];
+    match goal with
+      | [ H : M.In ?x ?m \/ M.In ?x ?m' |- _ ] =>
+        case_eq (M.find x m);
+          case_eq (M.find x m');
+          intros
+    end;
+    destruct_head or;
     destruct_head_hnf ex;
     destruct_head prod;
     destruct_head option;
-    try solve [ repeat esplit; eassumption ];
+    try solve [ left; repeat esplit; eassumption
+              | right; repeat esplit; eassumption ];
+    (lazymatch goal with
+    | [ H : M.MapsTo ?x (_, None) ?m, H' : M.find ?x ?m = Some (_, Some _) |- _ ]
+      => (exfalso; revert H H'; clear;
+          intros;
+          add_facts;
+          congruence)
+    | _ => idtac
+     end);
+    try solve [ left; repeat esplit; apply M.find_2; eassumption
+              | right; repeat esplit; apply M.find_2; eassumption ];
     exfalso;
-    [ pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_introl (ex_intro _ h i))) as H''
-    | pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_intror (ex_intro _ h i))) as H'' ];
-    match goal with
-      | [ H : M.MapsTo ?x (_, None) _, H' : M.MapsTo ?x (?g, Some ?v) (M.map2 ?f ?m ?m') |- _ ]
-        => specialize (H'' _ _ _ m m' _ f _ H);
+    admit;
+    (lazymatch goal with
+    | [ H : M.MapsTo ?x (_, None) _, H' : M.MapsTo ?x (?g, Some ?v) (M.map2 ?f ?m ?m') |- _ ]
+      => (first [ pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_introl (ex_intro _ h i))) as H'';
+                  specialize (H'' _ _ _ m m' _ f _ H)
+                | pose proof (fun a b c d e f g h i => @M.map2_1 a b c d e f g (or_intror (ex_intro _ h i))) as H'';
+                  specialize (H'' _ _ _ m m' _ f _ H) ];
           let f' := fresh in
           let H''' := fresh in
           set (f' := f) in *;
             assert (H''' : id (f = f')) by reflexivity;
-            clearbody f';
-            revert H H' H'' H'''; clear; intros
-    end;
+          clearbody f')
+     end);
     destruct_head ex;
     destruct_head and;
     add_facts;
-    try solve [ unfold id, option_map in *; subst;
+    admit;
     repeat match goal with
-             | [ H : appcontext[match ?f ?x ?m with _ => _ end] |- _ ]
-               => destruct (f x m)
-             (*| [ H : M.find ?x ?m = _, H' : appcontext[match M.find ?x ?m with _ => _ end] |- _ ]
-               => rewrite H in H'
-             | [ H : appcontext[match M.find ?x ?m with _ => _ end] |- _ ]
-               => let H' := fresh in
-                  case_eq (M.find x m);
-                    [ intros ? H'; rewrite H' in H
-                    | intro H'; rewrite H' in H ]*)
-             | _ => progress destruct_head prod
-             | _ => progress destruct_head option
-             | _ => congruence
-           end ].
+               | [ H : ?x = ?x |- _ ] => clear H
+               | [ H : ?x = Some _, H' : appcontext[?x] |- _ ] => rewrite H in H'
+             end;
+    admit;
+    unfold id, option_map in *; simpl in *; subst; simpl;
+    admit;
     congruence.
-
-
-    case_eq (M.find x m').
- }
-    intros; rewrite M.map2_1.
-    { do 2 edestruct @M.find;
-      destruct_head prod;
-      destruct_head option;
-      match goal with
-        | [ |- appcontext[match ?E with _ => _ end] ] => destruct E; reflexivity
-      end. }
-    { destruct_head or; [ left | right ];
-      unfold M.In;
-      destruct_head ex;
-      repeat esplit; eassumption. }
-    admit.
   Qed.
 
   Definition lt_key := M.lt_key.
@@ -793,21 +788,46 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     unfold M.lt_key; simpl; trivial.
   Qed.
 
+  Definition from_elements (
 
+  Local Instance Serializable_map {elt} `{Serializable elt} : Serializable (t elt)
+    := {| to_string x := to_string (M.elements x) |}.
 
-
-  Definition elements_to_string {elt} (elt_to_string : elt -> string) (ls : list (key * (nat * option elt)))
-  : string.
+  Local Instance Deserializable_map {elt} `{Deserializable elt} : Deserializable (t elt).
   Proof.
-    Require Import String.
-    SearchAbout nat string.
-    pose (M.elements m).
+    pose (fun x : t elt => M.elements x).
 
-      := filter_some (List.map (fun kv => (fst kv, snd (snd kv))) (M.elements m)).
+    pose (from_string (A := list (M.key * (nat * option elt)))
+    := {| from_string s := from_string s |}.
+    pose ().
+    const
+    := {|
+    Parameter Deserializable_map : forall `{Deserializable elt}, Deserializable (t elt).
 
+    Local Existing Instance Serializable_map.
+    Local Existing Instance Deserializable_map.
+    Axiom from_to_string_map : forall `{PrefixSerializable elt}
+                                  (x : t elt),
+                             from_string (to_string x) = (Some x, ""%string).
+    Axiom prefix_closed_map
+    : forall `{PrefixSerializable elt}
+             (s1 s2 : string) (x : t elt),
+        fst (from_string s1) = Some x
+        -> from_string (s1 ++ s2) = (Some x, (snd (from_string s1) ++ s2)%string).
+
+    Definition PrefixSerializable_map `{PrefixSerializable elt} : PrefixSerializable (t elt)
+      := {| serialize := _;
+            deserialize := _;
+            from_to_string := from_to_string_map;
+            prefix_closed := prefix_closed_map |}.
 
   Definition to_string {elt} (elt_to_string : elt -> string) (m : t elt) : string.
   Proof.
+    pose (M.elements m).
+    pose string_of_list.
+    unfold key in *.
+
+
 
   Defined.
 

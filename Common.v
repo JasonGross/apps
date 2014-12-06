@@ -263,7 +263,7 @@ Ltac split_in_context ident proj1 proj2 :=
          end.
 
 Ltac split_iff := split_in_context iff @proj1 @proj2.
-Ltac split_and := split_in_context and @fst @snd.
+Ltac split_and := split_in_context and @proj1 @proj2.
 
 (** Run [simpl] on a hypothesis before rewriting with it. *)
 Ltac simpl_do_clear tac term :=
