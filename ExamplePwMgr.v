@@ -1,6 +1,7 @@
 Require Import Ascii FunctionApp List Program.Basics String.
 Require Import FunctionAppLemmas FunctionAppTactics.
 Import ListNotations.
+Open Scope string_scope.
 
 Section ui.
 
@@ -90,21 +91,67 @@ Section ui.
 End ui.
 
 
+Inductive httpStatus :=
+| httpOk
+| httpPreconditionFailed
+| httpUnrecognizedCode.
+
+Record httpResponse :=
+  {
+    httpResponseStatus : httpStatus;
+    httpResponseStatusText : string;
+    httpResponseProtocol : string;
+    httpResponseHeader : list (string * string);
+    httpResponseBody : string
+  }.
+
+
 Section net.
 
   Inductive netInput :=
-  | netReceived : string -> netInput
+  | netReceived : option string -> netInput
+  | netHttpError : httpResponse -> netInput
   | netEncrypted : string -> netInput.
 
   Context (world : Type).
-  Context (send : string -> action world).
+  Context (httpPOST : string -> list (string * string) -> (httpResponse -> netInput) -> action world).
   Context (decrypt : string -> action world).
+
+  Definition storageURI := "https://andersk.scripts.mit.edu/pwmgr/storage".
+  Definition storageId := "foo".
+
+  Definition storageGet id cb :=
+    httpPOST
+      (storageURI ++ "/get") [("id", id)]
+      (fun r => match httpResponseStatus r with
+                  | httpOk => cb (httpResponseBody r)
+                  | _ => netHttpError r
+                end).
+  Definition storageSet id old new cb :=
+    httpPOST
+      (storageURI ++ "/set") [("id", id); ("old", old); ("new", new)]
+      (fun r => match httpResponseStatus r with
+                  | httpOk => cb None  (* compare-and-set succeeded *)
+                  | httpPreconditionFailed => cb (Some (httpResponseBody r))  (* remote value differed *)
+                  | _ => netHttpError r
+                end).
+  Definition storagePoll id old cb :=
+    httpPOST
+      (storageURI ++ "/poll") [("id", id); ("old", old)]
+      (fun r => match httpResponseStatus r with
+                  | httpOk => cb (httpResponseBody r)
+                  | _ => netHttpError r
+                end).
 
   CoFixpoint net :=
     Step (fun i =>
             match i with
-              | netReceived s => (decrypt s, net)
-              | netEncrypted s => (send s, net)
+              | netReceived (Some s) => (decrypt s, net)
+              | netReceived None => (id, net)
+              | netHttpError _ => (id, net)
+              | netEncrypted s =>
+                (storageSet storageId "" s netReceived,
+                 net)
             end).
 
 End net.
@@ -119,17 +166,17 @@ Local Open Scope type_scope.
 
 Section pwMgr.
 
+  Inductive pwMgrInput :=
+  | pwMgrConsoleIn : string -> pwMgrInput
+  | pwMgrNetInput : netInput -> pwMgrInput.
+
   Context (world : Type).
   Context (consoleOut : string -> action world).
-  Context (send : string -> action world).
+  Context (httpPOST : string -> list (string * string) -> (httpResponse -> pwMgrInput) -> action world).
 
   Inductive pwMgrMessage :=
   | pwMgrEncrypt : string -> pwMgrMessage
   | pwMgrDecrypt : string -> pwMgrMessage.
-
-  Inductive pwMgrInput :=
-  | pwMgrConsoleIn : string -> pwMgrInput
-  | pwMgrReceived : string -> pwMgrInput.
 
   Definition pwMgrLoopBody pwMgrLoop ui net : @stackInput pwMgrMessage pwMgrInput -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage pwMgrInput world :=
     fun i =>
@@ -142,8 +189,8 @@ Section pwMgr.
           let (a, ui') := getStep ui (uiDecrypted s) in (a, pwMgrLoop ui' net)
         | inr (pwMgrConsoleIn s) =>
           let (a, ui') := getStep ui (uiConsoleIn s) in (a, pwMgrLoop ui' net)
-        | inr (pwMgrReceived s) =>
-          let (a, net') := getStep net (netReceived s) in (a, pwMgrLoop ui net')
+        | inr (pwMgrNetInput i') =>
+          let (a, net') := getStep net i' in (a, pwMgrLoop ui net')
       end.
 
   CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage pwMgrInput world :=
@@ -164,11 +211,11 @@ Section pwMgr.
     wrap_net
     (net :
        forall {world'},
-         (string -> action world') ->
+         (string -> list (string * string) -> (httpResponse -> netInput) -> action world') ->
          (string -> action world') ->
          process netInput world') :=
     net
-      (fun s => stackLift (send s))
+      (fun uri data cb => stackLift (httpPOST uri data (fun r => pwMgrNetInput (cb r))))
       (fun s => stackPush (pwMgrDecrypt s)).
 
   Definition
