@@ -27,9 +27,11 @@ Module AESGCM <: EncryptionAlgorithm EncryptionStringDataTypes.
   Infix "=?" := beq_nat : nat_scope.
   Infix "<>?" := bne_nat (at level 70) : nat_scope.
 
-  Definition isValidMasterKey (key : masterKeyT) : bool := (length #key =? 128)%nat.
+  (* a valid key is any string of length 16 (or 128 bit) *)
+  Definition isValidMasterKey (key : masterKeyT) : bool := (String.length key =? 16)%nat.
 
-  Definition randomnessHint (rawData : rawDataT) : systemRandomnessHintT := 96.
+  (* in unit of byte. Need 12 byte (or 96 bit) randomness *)
+  Definition randomnessHint (rawData : rawDataT) : systemRandomnessHintT := 12.
 
   Definition encrypt (randomness : systemRandomnessT)
              (masterKey : masterKeyT)
