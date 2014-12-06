@@ -25,4 +25,5 @@ FPUtil.v
 Bitvec.v
 AES.v
 GCM.v
+GCMTest.v
 AESGCM.v
