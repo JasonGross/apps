@@ -1595,9 +1595,29 @@ Check M.map2_2.
   : M.Equiv (eq * option_lift_relation eq_elt)%signature m1 m2
     -> Equiv eq_elt m1 m2.
   Proof.
-    SearchAbout Equiv.
-    unfold Equiv, M.Equiv.
-
+    unfold Equiv, M.Equiv, In, M.In, MapsTo.
+    repeat match goal with
+             | _ => intro
+             | _ => progress cleanup
+             | _ => progress simpl in *
+             | _ => progress split_iff
+             | _ => progress destruct_head ex
+             | _ => progress destruct_head option
+             | _ => progress destruct_head_hnf and
+             | _ => progress split_ex_in_hyps
+             | _ => progress hnf in *
+             | _ => solve [ repeat esplit; eassumption ]
+             | [ H : M.MapsTo _ _ _, H' : forall a b, M.MapsTo _ _ _ -> _ |- _ ]
+               => specialize (H' _ _ H)
+             | [ H : M.MapsTo _ _ _, H' : forall a b c, M.MapsTo _ _ _ -> _ |- _ ]
+               => specialize (H' _ _ _ H)
+             | [ H : M.MapsTo _ _ _, H' : forall a b c d e, M.MapsTo _ _ _ -> _ |- _ ]
+               => specialize (fun d e => H' _ _ _ d e H)
+             | [ H : M.MapsTo _ _ _, H' : forall a b c d e f, M.MapsTo _ _ _ -> _ |- _ ]
+               => specialize (fun d e f => H' _ _ _ d e f H)
+           end;
+    add_facts; cleanup.
+  Qed.
 
   Lemma from_to_string_map {elt}
         (eq_elt : relation elt)
@@ -1626,20 +1646,15 @@ Check M.map2_2.
                  => let G' := context G[Some y] in
                     assert G' by (rewrite <- H; exact H');
                       clear H'
-               | _ => solve [ eauto using adj_elements_1 ]
-             end.
-
-      apply adj_elements_1 in H3; eauto.
-
-      admit. }
-    { assert (H' := @from_to_string_2
-                      _ R _).
+               | _ => solve [ eauto using MEquiv_Equiv, adj_elements_1 ]
+             end. }
+    { assert (H' := @from_to_string_2 _ R _).
       apply H'. }
   Qed.
 
   Lemma prefix_closed_map {elt}
         (eq_elt : relation elt)
-        `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+        `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
   : forall s1 s2 x,
       option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) s1)) (Some x)
       -> option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (s1 ++ s2))) (Some x)
@@ -1676,14 +1691,17 @@ Check M.map2_2.
              | _ => solve [ subst R; eauto ]
              | _ => solve [ subst R; eauto using adj_elements_2, adj_elements_1 ]
            end.
-    Focus 2.
+    admit.
+    exfalso; clear; admit.
+    exfalso; clear; admit.
+    Grab Existential Variables.
+    admit.
   Qed.
 
-  Definition PrefixSerializable_map {elt} {eq_elt} `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+  Definition PrefixSerializable_map {elt} {eq_elt} `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
   : PrefixSerializable (t elt) (Equiv eq_elt)
     := {| serialize := _;
           deserialize := _;
           from_to_string := @from_to_string_map elt eq_elt _ _;
           prefix_closed := @prefix_closed_map elt eq_elt _ _ |}.
-
 End MakeSerializableMergableMap.
