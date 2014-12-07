@@ -1,4 +1,4 @@
-Require Import Coq.Strings.String Coq.FSets.FMapInterface.
+Require Import Coq.Strings.String Coq.FSets.FMapInterface Coq.Classes.RelationPairs.
 Require Import SerializableMergableFMapInterface PrefixSerializable.
 Require Import Common.
 
@@ -8,12 +8,17 @@ Set Implicit Arguments.
 Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <: SerializableMergableMapInterface E.
   Definition key := M.key.
   Definition t elt := M.t (nat * option elt).
+Check M.map2_2.
 
   Local Ltac add_facts :=
     repeat match goal with
              | _ => progress subst
              | [ H : Some _ = None |- _ ] => solve [ inversion H ]
              | [ H : None = Some _ |- _ ] => solve [ inversion H ]
+             | [ H : appcontext[M.map2 ?f _ _] |- _ ]
+               => not atomic f;
+                 let f' := fresh "f" in
+                 set (f' := f) in *
              | [ H : E.eq ?x ?y, H' : M.MapsTo ?x ?e ?m |- _ ]
                => unique pose proof (M.MapsTo_1 H H')
              | [ H : E.eq ?x ?y |- _ ]
@@ -28,6 +33,10 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
                => unique pose proof (M.find_1 H)
              | [ H : M.find ?x ?m = Some ?e |- _ ]
                => unique pose proof (M.find_2 H)
+             | [ H : M.MapsTo ?k ?v ?m |- _ ]
+               => unique pose proof (ex_intro (fun v => M.MapsTo k v m) v H : M.In k m)
+             | [ H : M.In ?x (M.map2 ?f ?m ?m') |- _ ]
+               => unique pose proof (M.map2_2 H)
              | [ H : ?a = ?b |- _ ]
                => unique pose proof (Logic.eq_sym H)
              | [ H : ?a = ?b, H' : ?b = ?c |- _ ]
@@ -109,6 +118,15 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
                      | None, None => None
                    end)
                 m m'.
+
+    Definition garbage_collect (m : t elt) : t elt
+      := M.map2 (fun v1 _ =>
+                   match v1 with
+                     | Some (_, None) => None
+                     | Some (_, Some v) => Some (0, Some v)
+                     | None => None
+                   end)
+                m m.
 
     Fixpoint filter_some {A B} (ls : list (A * option B)) : list (A * B)
       := match ls with
@@ -228,11 +246,9 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       Proof.
         induction ls as [|?? IHls]; intro H'; inversion H'; clear H';
         repeat match goal with
-                 | _ => progress subst
-                 | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
+                 | _ => progress cleanup
                  | _ => progress simpl in *
                  | _ => progress destruct_head ex
-                 | _ => progress destruct_head and
                end;
         solve [ eexists; split; [ | eassumption ];
                 first [ left; reflexivity
@@ -253,16 +269,12 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       repeat match goal with
                | _ => intro
                | _ => progress simpl in *
-               | _ => progress subst
-               | _ => assumption
+               | _ => progress cleanup
                | [ |- _ <-> _ ] => split
                | [ H : NoDupA _ (_::_) |- _ ] => (inversion H; clear H)
                | [ |- NoDupA _ nil ] => constructor
                | [ |- NoDupA _ (_::_) ] => constructor
-               | _ => progress destruct_head prod
                | _ => progress destruct_head option
-               | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
-               | [ H : ?A -> ?B, H' : ?A |- _ ] => specialize (H H')
                | [ H : InA _ _ (filter_some _) |- _ ] => unique pose proof (@InA_filter_some_fst _ _ _ _ _ _ H)
                | _ => progress unfold not in *
                | _ => solve [ eauto using InA_map1, InA_map2 ]
@@ -294,14 +306,62 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       := List.fold_left (fun acc kv => f (fst kv) (snd kv) acc) (elements m) init.
 
     Definition equal (eq : elt -> elt -> bool) (m1 : t elt) (m2 : t elt) : bool
-      := M.equal (fun v1 v2 => match v1, v2 with
+      := M.equal (fun v1 v2 => match snd v1, snd v2 with
                                  | None, None => true
                                  | Some v1', Some v2' => eq v1' v2'
                                  | _, _ => false
                                end)
-                 (M.map (@snd _ _) m1)
-                 (M.map (@snd _ _) m2).
+                 (garbage_collect m1)
+                 (garbage_collect m2).
 
+
+    Lemma garbage_collect_1 m k gen
+    : ~M.MapsTo k (gen, None) (garbage_collect m).
+    Proof.
+      clear.
+      unfold garbage_collect; intro H.
+      add_facts; cleanup.
+      subst_body.
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ H : _ |- _ ] => rewrite M.map2_1 in H by assumption
+             end.
+    Qed.
+
+    Lemma garbage_collect_2 m k v gen
+    : M.MapsTo k (gen, Some v) (garbage_collect m)
+      -> gen = 0 /\ exists gen', M.MapsTo k (gen', Some v) m.
+    Proof.
+      clear.
+      unfold garbage_collect; intro H.
+      add_facts; cleanup;
+      subst_body;
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+                 => revert H; case_eq E
+               | [ H : _ |- _ ] => rewrite M.map2_1 in H by assumption
+               | [ H : M.find ?x ?m = Some ?e |- _ ]
+                 => unique pose proof (M.find_2 H)
+               | _ => solve [ eauto ]
+             end.
+    Qed.
+
+    Lemma garbage_collect_3 m k v gen
+    : M.MapsTo k (gen, Some v) m
+      -> M.MapsTo k (0, Some v) (garbage_collect m).
+    Proof.
+      clear.
+      unfold garbage_collect; intro H.
+      apply M.find_2.
+      add_facts; cleanup.
+      rewrite M.map2_1 by eauto;
+        cleanup.
+    Qed.
 
     Section Spec.
       Variable m m' m'' : t elt.
@@ -320,18 +380,18 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       Definition eq_key_elt (p p':key*elt) :=
           E.eq (fst p) (fst p') /\ (snd p) = (snd p').
 
-    Local Ltac pre_t :=
-      repeat match goal with
-               | _ => progress unfold remove, In, MapsTo, find, elements in *
-               | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E
-               | _ => progress simpl in *
-               | _ => intro
-               | _ => progress destruct_head ex
-               | _ => progress destruct_head and
-               | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H
-               | _ => progress destruct_head prod
-               | _ => progress subst
-             end.
+      Local Ltac pre_t :=
+        repeat match goal with
+                 | _ => progress unfold remove, In, MapsTo, find, elements in *
+                 | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E
+                 | _ => progress simpl in *
+                 | _ => intro
+                 | _ => progress destruct_head ex
+                 | _ => progress destruct_head and
+                 | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H
+                 | _ => progress destruct_head prod
+                 | _ => progress subst
+               end.
 
       Lemma MapsTo_1 : E.eq x y -> MapsTo x e m -> MapsTo y e m.
       Proof.
@@ -352,10 +412,8 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
         repeat match goal with
                  | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E; intro
                  | _ => intro
-                 | _ => progress subst
+                 | _ => progress cleanup
                  | [ H : M.find _ _ = Some _ |- _ ] => apply M.find_2 in H
-                 | [ H : true = false |- _ ] => solve [ inversion H ]
-                 | [ H : false = true |- _ ] => solve [ inversion H ]
                  | _ => repeat esplit; eassumption
                end.
       Qed.
@@ -387,8 +445,7 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
 
       Local Instance : Reflexive (M.eq_key_elt (elt:=nat * option elt)).
       Proof.
-        intro; destruct_head prod; split; try reflexivity; simpl.
-        apply E.eq_refl.
+        intro; destruct_head prod; split; reflexivity.
       Qed.
 
       Local Instance
@@ -585,13 +642,41 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
                    => specialize (fun a b c p => H a b (ex_intro _ c p))
                  | [ H : forall a b c, ex _ -> _ |- _ ]
                    => specialize (fun a b c d p => H a b c (ex_intro _ d p))
+                 | [ H : forall a b c d, ex _ -> _ |- _ ]
+                   => specialize (fun a b c d e p => H a b c d (ex_intro _ e p))
+                 | [ H : forall a b c d e, ex _ -> _ |- _ ]
+                   => specialize (fun a b c d e f p => H a b c d e (ex_intro _ f p))
                  | _ => progress simpl in *
+                 | _ => progress destruct_head_hnf ex
                  | _ => progress split_iff
                  | [ |- _ <-> _ ] => split
                  | [ |- _ /\ _ ] => split
                  | [ H : M.In _ (M.map _ _) |- _ ] => unique pose proof (M.map_2 H)
                end;
-        admit.
+        repeat match goal with
+                 | _ => progress cleanup
+                 | _ => progress destruct_head option
+                 | _ => progress destruct_head ex
+                 | [ H : M.MapsTo _ (_, None) (garbage_collect _) |- _ ]
+                   => apply garbage_collect_1 in H
+                 | [ H : M.MapsTo _ (_, Some _) (garbage_collect _) |- _ ]
+                   => apply garbage_collect_2 in H
+               end;
+        repeat match goal with
+                 | [ H : forall a b c, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _ ]
+                   => unique pose proof (H _ _ _ H')
+               end;
+        repeat match goal with
+                 | _ => progress cleanup
+                 | _ => progress destruct_head option
+                 | _ => progress destruct_head ex
+                 | [ H : M.MapsTo _ (_, None) (garbage_collect _) |- _ ]
+                   => apply garbage_collect_1 in H
+                 | [ H : M.MapsTo _ (_, Some _) (garbage_collect _) |- _ ]
+                   => apply garbage_collect_2 in H
+                 | _ => solve [ esplit; eauto using garbage_collect_3
+                              | eauto ]
+               end.
       Qed.
 
       Lemma equal_2 : equal cmp m m' = true -> Equivb cmp m m'.
@@ -599,8 +684,58 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
         clear.
         unfold equal.
         intro H; apply M.equal_2 in H.
-        unfold Equivb, M.Equivb, Equiv, M.Equiv in *.
-        admit.
+        unfold Equivb, M.Equivb, Equiv, M.Equiv, Cmp, In, M.In, MapsTo in *.
+        repeat match goal with
+                 | _ => intro
+                 | _ => progress cleanup
+                 | _ => progress simpl in *
+                 | _ => progress destruct_head ex
+                 | [ |- _ <-> _ ] => split
+                 | _=> progress split_iff
+                 | [ H : (ex _) -> ?T |- _ ]
+                   => specialize (fun x p => H (ex_intro _ x p))
+                 | [ H : forall a, ex _ -> _ |- _ ]
+                   => specialize (fun a b p => H a (ex_intro _ b p))
+                 | [ H : forall a b, ex _ -> _ |- _ ]
+                   => specialize (fun a b c p => H a b (ex_intro _ c p))
+                 | [ H : forall a b c, ex _ -> _ |- _ ]
+                   => specialize (fun a b c d p => H a b c (ex_intro _ d p))
+                 | [ H : forall a b c d, ex _ -> _ |- _ ]
+                   => specialize (fun a b c d e p => H a b c d (ex_intro _ e p))
+                 | [ H : forall a b c d e, ex _ -> _ |- _ ]
+                   => specialize (fun a b c d e f p => H a b c d e (ex_intro _ f p))
+               end;
+        repeat match goal with
+                 | [ H : M.MapsTo _ (_, Some _) ?m |- _ ]
+                   => atomic m; unique pose proof (garbage_collect_3 H)
+                 | [ H : forall a b, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _ ]
+                   => unique pose proof (H _ _ H')
+               end;
+        destruct_head ex;
+        cleanup;
+        destruct_head option;
+        repeat match goal with
+                 | [ H : M.MapsTo _ (_, Some _) (garbage_collect _) |- _ ]
+                   => unique pose proof (garbage_collect_2 H)
+               end;
+        repeat match goal with
+                 | _ => intro
+                 | _ => progress cleanup
+                 | _ => progress simpl in *
+                 | _ => progress destruct_head option
+                 | _ => progress destruct_head ex
+                 | [ H : M.MapsTo _ (_, None) (garbage_collect _) |- _ ]
+                   => apply garbage_collect_1 in H
+                 | _ => solve [ eauto ]
+               end.
+        repeat match goal with
+                 | [ H : forall a, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _ ]
+                   => unique pose proof (H _ H')
+                 | [ H : forall a b c, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _ ]
+                   => unique pose proof (fun c => H _ _ c H')
+               end.
+        simpl in *.
+        eauto.
       Qed.
     End Spec.
   End elt.
@@ -976,46 +1111,278 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
              end;
       add_facts; cleanup.
     Qed.
+  End merge.
+
+
+  Definition from_internal_elements {elt} (elements : list (M.key * (nat * option elt)))
+  : t elt
+    := fold_right
+         (fun kv acc => M.add (fst kv) (snd kv) acc)
+         (@M.empty _)
+         elements.
+
+  Lemma not_eq_InA {A B} (k k' : A) (v v' : B) (RA : relation A) (R R' : relation (A * B))
+        (ls : list (A * B))
+        (H0 : InA R (k, v) ls)
+        (H1 : ~InA R' (k', v') ls)
+        (HR : forall a, R (k, v) a -> RA k' k -> R' (k', v') a)
+  : ~RA k' k.
+  Proof.
+    induction ls; inversion H0; clear H0; subst.
+    { intro H'; apply H1; left; eauto. }
+    { apply IHls; eauto. }
+  Qed.
+
+  Lemma InA_NoDupA_eq {A R R'} `{Symmetric A R, Transitive A R, Equivalence A R'}
+        (x y : A)
+        (ls : list A)
+        (H_0 : InA R x ls)
+        (H_1 : InA R y ls)
+        (H_D : NoDupA R' ls)
+        (HRR' : forall a b, R a b -> R' a b)
+        (HR' : R' x y)
+  : R x y.
+  Proof.
+    induction ls;
+    inversion H_0; clear H_0; subst;
+    inversion H_1; clear H_1; subst;
+    inversion H_D; clear H_D; subst;
+    eauto.
+    { match goal with
+        | [ H : ~_ |- _ ] => exfalso; apply H
+      end.
+      erewrite <- HRR' by eassumption.
+      rewrite HR'; eauto.
+      apply InA_alt.
+      match goal with
+        | [ H : InA _ _ _ |- _ ] => apply InA_alt in H
+      end.
+      destruct_head ex.
+      destruct_head and.
+      eauto. }
+    { match goal with
+        | [ H : ~_ |- _ ] => exfalso; apply H
+      end.
+      erewrite <- HRR' by eassumption.
+      rewrite <- HR'; eauto.
+      apply InA_alt.
+      match goal with
+        | [ H : InA _ _ _ |- _ ] => apply InA_alt in H
+      end.
+      destruct_head ex.
+      destruct_head and.
+      eauto. }
+  Qed.
+
+
+  Lemma InA_from_internal_elements_1 {elt} (elements : list (M.key * (nat * option elt)))
+        k v
+        (H0 : NoDupA (@eq_key _) elements)
+        (H1 : InA (@M.eq_key_elt _) (k, v) elements)
+  : M.MapsTo k v (from_internal_elements elements).
+  Proof.
+    unfold from_internal_elements.
+    induction elements;
+    repeat match goal with
+             | _ => progress destruct_head_hnf and
+             | _ => progress cleanup
+             | _ => progress simpl in *
+             | [ H : InA _ _ nil |- _ ] => solve [ inversion H ]
+             | [ H : InA _ _ (_::_) |- _ ] => (inversion H; clear H)
+             | [ H : NoDupA _ nil |- _ ] => clear H
+             | [ H : NoDupA _ (_::_) |- _ ] => (inversion H; clear H)
+             | _ => apply M.add_1; solve [ assumption | apply E.eq_sym; assumption ]
+           end.
+    { apply M.add_2; eauto.
+      eapply not_eq_InA; try eassumption; [].
+      unfold M.eq_key_elt, eq_key; simpl; intros; cleanup.
+      eapply E.eq_trans; eassumption. }
+  Qed.
+
+  Lemma InA_from_internal_elements_2 {elt} (elements : list (M.key * (nat * option elt)))
+        k v
+        (H : M.MapsTo k v (from_internal_elements elements))
+  : InA (@M.eq_key_elt _) (k, v) elements.
+  Proof.
+    unfold from_internal_elements in *.
+    induction elements;
+    repeat match goal with
+             | _ => progress destruct_head_hnf and
+             | _ => progress cleanup
+             | _ => progress simpl in *
+             | [ H : InA _ _ nil |- _ ] => solve [ inversion H ]
+             | [ H : InA _ _ (_::_) |- _ ] => (inversion H; clear H)
+             | [ H : NoDupA _ nil |- _ ] => clear H
+             | [ H : NoDupA _ (_::_) |- _ ] => (inversion H; clear H)
+             | _ => apply M.add_1; solve [ assumption | apply E.eq_sym; assumption ]
+             | [ H : M.MapsTo _ _ (M.empty _) |- _ ] => apply M.empty_1 in H
+           end.
+    match goal with
+      | [ H : M.MapsTo ?k ?v (M.add ?k' ?v' ?m) |- _ ]
+        => let H' := fresh in
+           destruct (E.eq_dec k' k) as [H'|H'];
+             [ left; unique pose proof (M.add_1 m v' H')
+             | right; unique pose proof (M.add_3 H' H); eauto ]
+    end.
+    repeat match goal with
+             | [ H : M.MapsTo ?x ?e ?m |- _ ]
+               => unique pose proof (M.find_1 H)
+           end;
+      cleanup.
+    split; simpl; eauto.
+  Qed.
+
+  Lemma from_internal_elements_Equal {elt} (m : t elt)
+  : Equal m (from_internal_elements (M.elements m)).
+  Proof.
+    unfold Equal, find.
+    intro k.
+    repeat match goal with
+             | _ => intro
+             | _ => progress cleanup
+             | [ |- appcontext[match ?E with _ => _ end] ] => case_eq E
+           end;
+    repeat match goal with
+             | [ H : M.find ?x ?m = Some ?e |- _ ]
+               => unique pose proof (M.find_2 H)
+             | [ H : M.MapsTo ?k ?v ?m |- _ ]
+               => unique pose proof (M.elements_1 H)
+             | [ H : InA _ _ (M.elements ?m) |- _ ]
+               => atomic m; unique pose proof (InA_from_internal_elements_1 (@M.elements_3w _ _) H)
+             | [ H : M.MapsTo ?x ?e ?m |- _ ]
+               => unique pose proof (M.find_1 H)
+             | [ H : M.MapsTo ?x ?e (from_internal_elements ?ls) |- _ ]
+               => unique pose proof (InA_from_internal_elements_2 _ H)
+             | [ H : InA _ _ (M.elements ?m) |- _ ]
+               => unique pose proof (M.elements_2 H)
+           end;
+      cleanup.
+  Qed.
+
+  Lemma from_internal_elements_equiv_refl {elt} R `{Reflexive elt R} (m : t elt)
+  : Equiv R m (from_internal_elements (M.elements m)).
+  Proof.
+    generalize (from_internal_elements_Equal m).
+    generalize (from_internal_elements (M.elements m)); intro.
+    unfold Equal, Equiv, In.
+    intro H'.
+    split.
+    { intro k; specialize (H' k).
+      split; intros [e H''];
+      apply find_1 in H'';
+      eexists; apply find_2; cleanup; eauto. }
+    { intros k e e' H'' H'''.
+      specialize (H' k).
+      apply find_1 in H''; apply find_1 in H'''.
+      cleanup. }
+  Qed.
 
   Local Instance Serializable_map {elt} `{Serializable elt} : Serializable (t elt)
     := {| to_string x := to_string (M.elements x) |}.
 
-  Local Instance Deserializable_map {elt} `{Deserializable elt} : Deserializable (t elt).
+  Local Instance Deserializable_map {elt} `{Deserializable elt} : Deserializable (t elt)
+    := {| from_string s := prod_map
+                             (option_map from_internal_elements)
+                             id
+                             (from_string (A := list (M.key * (nat * option elt))) s) |}.
+
+  Local Opaque Serializable_list.
+  Local Opaque Deserializable_list.
+
+  Lemma adj_elements {elt} (eq_elt : relation elt) ls (m : t elt)
+  : eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
+                     ls
+                     (M.elements m)
+    <-> Equiv eq_elt (from_internal_elements ls) m.
   Proof.
-    pose (fun x : t elt => M.elements x).
+    admit.
+  Qed.
 
-    pose (from_string (A := list (M.key * (nat * option elt)))
-    := {| from_string s := from_string s |}.
-    pose ().
-    const
-    := {|
-    Parameter Deserializable_map : forall `{Deserializable elt}, Deserializable (t elt).
+  Definition adj_elements_1 {elt} (eq_elt : relation elt) ls (m : t elt)
+    := proj1 (adj_elements eq_elt ls m).
 
-    Local Existing Instance Serializable_map.
-    Local Existing Instance Deserializable_map.
-    Axiom from_to_string_map : forall `{PrefixSerializable elt}
-                                  (x : t elt),
-                             from_string (to_string x) = (Some x, ""%string).
-    Axiom prefix_closed_map
-    : forall `{PrefixSerializable elt}
-             (s1 s2 : string) (x : t elt),
-        fst (from_string s1) = Some x
-        -> from_string (s1 ++ s2) = (Some x, (snd (from_string s1) ++ s2)%string).
+  Definition adj_elements_2 {elt} (eq_elt : relation elt) ls (m : t elt)
+    := proj2 (adj_elements eq_elt ls m).
 
-    Definition PrefixSerializable_map `{PrefixSerializable elt} : PrefixSerializable (t elt)
-      := {| serialize := _;
-            deserialize := _;
-            from_to_string := from_to_string_map;
-            prefix_closed := prefix_closed_map |}.
-
-  Definition to_string {elt} (elt_to_string : elt -> string) (m : t elt) : string.
+  Lemma from_to_string_map {elt}
+        (eq_elt : relation elt)
+        `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+  : forall x : t elt,
+      option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (to_string x))) (Some x)
+      /\ snd (from_string (A := t elt) (to_string x)) = ""%string.
   Proof.
-    pose (M.elements m).
-    pose string_of_list.
-    unfold key in *.
+    intros; simpl; unfold id.
+    set (R := (eqlistA (E.eq * (eq * (option_lift_relation eq_elt)))%signature) : relation (list (M.key * (nat * option elt)))).
+    split.
+    { simpl.
+      pose proof (@from_to_string_1 _ R _ (M.elements x)).
+      repeat match goal with
+               | _ => intro
+               | _ => progress cleanup
+               | _ => progress unfold option_map in *
+               | _ => progress simpl in *
+               | [ |- appcontext[match ?E with _ => _ end] ]
+                 => case_eq E
+               | [ H : ?x = @None ?T, H' : appcontext G[?x] |- _ ]
+                 => let G' := context G[@None T] in
+                    assert G' by (rewrite <- H; exact H');
+                      clear H'
+               | [ H : ?x = Some ?y, H' : appcontext G[?x] |- _ ]
+                 => let G' := context G[Some y] in
+                    assert G' by (rewrite <- H; exact H');
+                      clear H'
+               | _ => solve [ eauto using adj_elements_1 ]
+             end. }
+    { assert (H' := @from_to_string_2
+                      _ R _).
+      apply H'. }
+  Qed.
 
+  Lemma prefix_closed_map {elt}
+        (eq_elt : relation elt)
+        `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+  : forall s1 s2 x,
+      option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) s1)) (Some x)
+      -> option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (s1 ++ s2))) (Some x)
+         /\ snd (from_string (A := t elt) (s1 ++ s2)) = (snd (from_string (A := t elt) s1) ++ s2)%string.
+  Proof.
+    simpl; unfold id.
+    set (R := (eqlistA (E.eq * (eq * (option_lift_relation eq_elt)))%signature) : relation (list (M.key * (nat * option elt)))).
+    intros s1 s2 x; split; simpl in *;
+    [ assert (H' := @prefix_closed_1 _ R _ s1 s2)
+    | assert (H' := @prefix_closed_2 _ R _ s1 s2 (M.elements x)) ];
+    repeat match goal with
+             | _ => progress unfold option_map, option_lift_relation in *
+             | _ => progress cleanup
+             | _ => progress simpl in *
+             | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+               => revert H; case_eq E; intros
+             | [ |- appcontext[match ?E with _ => _ end] ]
+               => case_eq E; intros
+             | [ H : ?x = @None ?T, H' : appcontext G[?x] |- _ ]
+               => let G' := context G[@None T] in
+                  assert G' by (rewrite <- H; exact H');
+                    clear H'
+             | [ H : ?x = Some ?y, H' : appcontext G[?x] |- _ ]
+               => let G' := context G[Some y] in
+                  assert G' by (rewrite <- H; exact H');
+                    clear H'
+             | [ H : ?x = Some ?y |- appcontext G[?x] ]
+               => let G' := context G[Some y] in
+                  let H' := fresh in
+                  assert (H' : G');
+                    [ | rewrite <- H in H'; exact H' ];
+                    simpl
+             | _ => eapply H'; clear H'
+             | _ => solve [ subst R; eauto using adj_elements_2, adj_elements_1 ]
+           end.
+  Qed.
 
-
-  Defined.
+  Definition PrefixSerializable_map {elt} {eq_elt} `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+  : PrefixSerializable (t elt) (Equiv eq_elt)
+    := {| serialize := _;
+          deserialize := _;
+          from_to_string := @from_to_string_map elt eq_elt _ _;
+          prefix_closed := @prefix_closed_map elt eq_elt _ _ |}.
 
 End MakeSerializableMergableMap.
