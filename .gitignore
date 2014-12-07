@@ -1,0 +1,13 @@
+*~
+#*#
+
+*.depend
+Makefile.coq
+Makefile.coq.bak
+*.vo
+*.glob
+*.v.d
+.#*
+.dir-locals.el
+*.ml
+*.mli
