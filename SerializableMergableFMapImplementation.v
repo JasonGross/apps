@@ -1133,6 +1133,41 @@ Check M.map2_2.
     { apply IHls; eauto. }
   Qed.
 
+  Local Ltac split_ex_in_hyps :=
+    repeat match goal with
+             | [ H : (ex _) -> ?T |- _ ]
+               => specialize (fun x p => H (ex_intro _ x p))
+             | [ H : forall a, ex _ -> _ |- _ ]
+               => specialize (fun a b p => H a (ex_intro _ b p))
+             | [ H : forall a b, ex _ -> _ |- _ ]
+               => specialize (fun a b c p => H a b (ex_intro _ c p))
+             | [ H : forall a b c, ex _ -> _ |- _ ]
+               => specialize (fun a b c d p => H a b c (ex_intro _ d p))
+             | [ H : forall a b c d, ex _ -> _ |- _ ]
+               => specialize (fun a b c d e p => H a b c d (ex_intro _ e p))
+             | [ H : forall a b c d e, ex _ -> _ |- _ ]
+               => specialize (fun a b c d e f p => H a b c d e (ex_intro _ f p))
+             | [ H : forall a, and _ _ -> _ |- _ ]
+               => specialize (fun a c d => H a (conj c d))
+             | [ H : forall a b, and _ _ -> _ |- _ ]
+               => specialize (fun a b c d => H a b (conj c d))
+             | [ H : forall a b c d, and _ _ -> _ |- _ ]
+               => specialize (fun a b c d x y => H a b c d(conj x y))
+             | [ H : forall a b c d e f, and _ _ -> _ |- _ ]
+               => specialize (fun a b c d e f x y => H a b c d e f (conj x y))
+             | [ H : forall (z : prod _  _), _ |- _ ]
+               => specialize (fun x y => H (x, y))
+             | [ H : forall a (z : prod _  _), _ |- _ ]
+               => specialize (fun a x y => H a (x, y))
+             | [ H : forall a b (z : prod _  _), _ |- _ ]
+               => specialize (fun a b x y => H a b (x, y))
+             | [ H : forall a b c (z : prod _  _), _ |- _ ]
+               => specialize (fun a b c x y => H a b c (x, y))
+             | [ H : forall a b c d (z : prod _  _), _ |- _ ]
+               => specialize (fun a b c d x y => H a b c d (x, y))
+             | _ => progress simpl in *
+           end.
+
   Lemma InA_NoDupA_eq {A R R'} `{Symmetric A R, Transitive A R, Equivalence A R'}
         (x y : A)
         (ls : list A)
@@ -1149,7 +1184,7 @@ Check M.map2_2.
     inversion H_D; clear H_D; subst;
     eauto.
     { match goal with
-        | [ H : ~_ |- _ ] => exfalso; apply H
+        | [ H : ~_ |- _ ] => exfalso; apply H; clear H
       end.
       erewrite <- HRR' by eassumption.
       rewrite HR'; eauto.
@@ -1174,6 +1209,85 @@ Check M.map2_2.
       eauto. }
   Qed.
 
+  Lemma InA_NoDupA_eq_fine_0 {A R0 R1 R'} `{Transitive A R', Symmetric A R'}
+        (x y : A)
+        (ls : list A)
+        (H_0 : InA R0 x ls)
+        (H_1 : InA R1 y ls)
+        (H_D : NoDupA R' ls)
+        (HR0R' : forall a b, R0 a b -> R' b a)
+        (HR1R' : forall a b, R1 a b -> R' b a)
+        (HR' : R' x y)
+  : exists a, R0 x a /\ R1 y a.
+  Proof.
+    induction ls;
+    inversion H_0; clear H_0; subst;
+    inversion H_1; clear H_1; subst;
+    inversion H_D; clear H_D; subst;
+    eauto.
+    { match goal with
+        | [ H : ~_ |- _ ] => exfalso; apply H; clear H
+      end.
+      repeat match goal with
+               | [ H : _ |- _ ] => setoid_rewrite InA_alt in H
+               | _ => setoid_rewrite InA_alt
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head and
+               | _ => progress unfold Basics.flip in *
+               | _ => solve [ repeat esplit; try eassumption; etransitivity; eauto ]
+             end. }
+    { match goal with
+        | [ H : ~_ |- _ ] => exfalso; apply H; clear H
+      end.
+      repeat match goal with
+               | [ H : _ |- _ ] => setoid_rewrite InA_alt in H
+               | _ => setoid_rewrite InA_alt
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head and
+               | _ => progress unfold Basics.flip in *
+               | _ => solve [ repeat esplit; try eassumption; etransitivity; eauto ]
+             end. }
+  Qed.
+
+  Lemma InA_NoDupA_eq_fine_1 {A R R'} `{Transitive A R', Symmetric A R'}
+        (x y : A)
+        (ls : list A)
+        (H_0 : InA R x ls)
+        (H_1 : InA (Basics.flip R) y ls)
+        (H_D : NoDupA R' ls)
+        (HRR' : forall a b, R a b -> R' b a)
+        (HR' : R' x y)
+        (HRT : forall a, R x a -> R a y -> R x y)
+  : R x y.
+  Proof.
+    induction ls;
+    inversion H_0; clear H_0; subst;
+    inversion H_1; clear H_1; subst;
+    inversion H_D; clear H_D; subst;
+    eauto.
+    { match goal with
+        | [ H : ~_ |- _ ] => exfalso; apply H; clear H
+      end.
+      repeat match goal with
+               | [ H : _ |- _ ] => setoid_rewrite InA_alt in H
+               | _ => setoid_rewrite InA_alt
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head and
+               | _ => progress unfold Basics.flip in *
+               | _ => solve [ repeat esplit; try eassumption; eauto ]
+             end. }
+    { match goal with
+        | [ H : ~_ |- _ ] => exfalso; apply H; clear H
+      end.
+      repeat match goal with
+               | [ H : _ |- _ ] => setoid_rewrite InA_alt in H
+               | _ => setoid_rewrite InA_alt
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head and
+               | _ => progress unfold Basics.flip in *
+               | _ => solve [ repeat esplit; try eassumption; etransitivity; eauto ]
+             end. }
+  Qed.
 
   Lemma InA_from_internal_elements_1 {elt} (elements : list (M.key * (nat * option elt)))
         k v
@@ -1289,24 +1403,205 @@ Check M.map2_2.
   Local Opaque Serializable_list.
   Local Opaque Deserializable_list.
 
-  Lemma adj_elements {elt} (eq_elt : relation elt) ls (m : t elt)
-  : eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
+  Lemma eqlistA_nil {A R'} `{Reflexive A R'} {R} (ls : list A)
+  : eqlistA R nil ls <-> forall x, ~InA R' x ls.
+  Proof.
+    destruct ls; split; auto.
+    { intros H0 x H'; inversion H'. }
+    { intro H0; inversion H0. }
+    { intro H'; exfalso; eapply H'; left; reflexivity. }
+  Qed.
+
+  Local Instance MEquiv_Reflexive {elt eq_elt} `{Reflexive elt eq_elt}
+  : Reflexive (@M.Equiv elt eq_elt).
+  Proof.
+    lazy; firstorder.
+    add_facts; reflexivity.
+  Qed.
+
+  Local Instance Equiv_Transitive {elt eq_elt} `{Transitive elt eq_elt}
+  : Transitive (@Equiv elt eq_elt).
+  Proof.
+    lazy.
+    repeat match goal with
+             | _ => intro
+             | _ => progress cleanup
+             | _ => progress destruct_head ex
+             | _ => progress simpl in *
+             | _ => solve [ eauto ]
+             | [ H : (ex _) -> ?T |- _ ]
+               => specialize (fun x p => H (ex_intro _ x p))
+             | [ H : forall a, ex _ -> _ |- _ ]
+               => specialize (fun a b p => H a (ex_intro _ b p))
+             | [ H : forall a b, ex _ -> _ |- _ ]
+               => specialize (fun a b c p => H a b (ex_intro _ c p))
+             | [ H : forall a b c, ex _ -> _ |- _ ]
+               => specialize (fun a b c d p => H a b c (ex_intro _ d p))
+             | [ H : forall a b c d, ex _ -> _ |- _ ]
+               => specialize (fun a b c d e p => H a b c d (ex_intro _ e p))
+             | [ H : forall a b c d e, ex _ -> _ |- _ ]
+               => specialize (fun a b c d e f p => H a b c d e (ex_intro _ f p))
+           end.
+    repeat match goal with
+             | [ H : forall a b c d, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _]
+               => unique pose proof (fun c => H _ _ c _ H')
+             | [ H : forall a b c, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _]
+               => unique pose proof (H _ _ _ H')
+           end;
+      destruct_head ex.
+    eauto.
+  Qed.
+
+  Lemma InA_impl {A} (R1 R2 : relation A) x ls
+        (H' : InA R1 x ls)
+        (H : forall a, R1 x a -> R2 x a)
+  : InA R2 x ls.
+  Proof.
+    induction ls; inversion H'; clear H'; subst.
+    { left; eauto. }
+    { right; eauto. }
+  Qed.
+
+  Lemma adj_elements_helper {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+        (R0 := eq)
+        (R1 := @M.eq_key_elt _)
+        (HND : NoDupA (@eq_key _) ls)
+  : (forall x, InA R1 x ls <-> InA R1 x (M.elements m))
+    <-> M.Equiv R0 (from_internal_elements ls) m.
+  Proof.
+    unfold M.Equiv, M.In; subst R0 R1.
+    repeat (split || intro);
+      repeat match goal with
+               | [ H : _ |- _ ]
+                 => setoid_rewrite (@InA_from_internal_elements_2 : forall a b c d, impl _ _) in H
+               | [ H : appcontext[M.MapsTo _ _ (from_internal_elements ?ls)] |- _ ]
+                 => setoid_rewrite <- (@InA_from_internal_elements_1 _ ls _ _ HND : impl _ _) in H
+               | _ => progress split_iff
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head prod
+               | [ H : forall a : prod _ _, _ |- _ ] => specialize (fun a b => H (a, b))
+               | [ H : _ |- _ ] => setoid_rewrite <- (M.elements_1 : forall a b c d, impl _ _) in H
+               | [ H : _ |- _ ] => setoid_rewrite (M.elements_2 : forall a b c d, impl _ _) in H
+               | [ |- exists e, M.MapsTo ?k e (from_internal_elements ?ls) ]
+                 => setoid_rewrite <- (@InA_from_internal_elements_1 _ ls k _ HND : impl _ _)
+               | [ |- InA _ _ (M.elements _) ]
+                 => apply M.elements_1
+             end;
+      eauto;
+      split_ex_in_hyps;
+      repeat match goal with
+               | [ H : forall a b c, InA _ _ _ -> _, H' : InA _ _ _ |- _ ]
+                 => specialize (H _ _ _ H')
+               | [ H : forall a b c d e, InA _ _ _ -> _, H' : InA _ _ _ |- _ ]
+                 => specialize (fun x y => H _ _ _ x y H')
+               | [ H : forall a b, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _ ]
+                 => specialize (H _ _ H')
+               | [ H : forall a b c, M.MapsTo _ _ _ -> _, H' : M.MapsTo _ _ _ |- _ ]
+                 => specialize (H _ _ _ H')
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head prod
+             end;
+      try match goal with
+            | [ H : InA ?R ?k ?ls, H' : InA ?R' ?k' ?ls |- _ ]
+              => unique pose proof (@InA_NoDupA_eq_fine_0 _ R R' _ _ _ _ _ _ H H' HND)
+          end;
+      repeat match goal with
+               | [ H : (forall a b, _ -> _) -> _ |- _ ] => specialize (H (fun a b H' => E.eq_sym (proj1 H')))
+               | [ H : (forall a b, _ -> _) -> _ |- _ ] => specialize (H (fun a b H' => proj1 H'))
+               | [ H : _ -> _ |- _ ] => specialize (H (reflexivity _))
+               | _ => progress destruct_head ex
+               | _ => progress unfold M.eq_key_elt in *
+               | _ => progress simpl in *
+               | _ => cleanup
+             end.
+  Qed.
+
+  Lemma adj_elements_equiv {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+  : equivlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
                      ls
                      (M.elements m)
-    <-> Equiv eq_elt (from_internal_elements ls) m.
+    <-> M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m.
   Proof.
     admit.
   Qed.
 
-  Definition adj_elements_1 {elt} (eq_elt : relation elt) ls (m : t elt)
-    := proj1 (adj_elements eq_elt ls m).
+  Lemma eqlistA_equivlistA {A} {R R' : relation A} `{Transitive A R'}
+        (H0 : forall x y, R x y -> R' x y)
+        (H1 : forall x y, R x y -> R' y x)
+        (ls ls' : list A)
+  : eqlistA R ls ls' -> equivlistA R' ls ls'.
+  Proof.
+    unfold equivlistA in *.
+    revert ls'.
+    induction ls; intros ls' H'; inversion H'; subst; clear H';
+    hnf; intro x; split; try tauto;
+    intro H''; inversion H''; subst; clear H'';
+    try solve [ left; etransitivity; eauto
+              | split_iff; right; eauto ].
+  Qed.
 
-  Definition adj_elements_2 {elt} (eq_elt : relation elt) ls (m : t elt)
-    := proj2 (adj_elements eq_elt ls m).
+  Lemma adj_elements_1 {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+  : eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
+                     ls
+                     (M.elements m)
+    -> M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m.
+  Proof.
+    rewrite <- adj_elements_equiv; trivial.
+    intros; eapply eqlistA_equivlistA; eauto.
+    intros; symmetry; trivial.
+  Qed.
+
+  Lemma adj_elements_2 {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+        (H' : Sorted (@M.lt_key _) ls)
+  : M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m
+    -> eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
+               ls
+               (M.elements m).
+  Proof.
+    rewrite <- adj_elements_equiv; trivial.
+    pose proof (M.elements_3 m).
+    eapply SortA_equivlistA_eqlistA;
+      try eassumption;
+      try typeclasses eauto.
+    { split; typeclasses eauto. }
+    { split; unfold M.lt_key; simpl.
+      { intros ? H1; apply E.lt_not_eq in H1.
+        apply (H1 (E.eq_refl _)). }
+      { repeat intro; eapply E.lt_trans; eassumption. } }
+    { repeat intro; destruct_head_hnf and; hnf in *;
+      cleanup;
+      hnf in *; simpl in *;
+      add_facts;
+      match goal with
+        | [ H : E.eq ?a ?b, H' : E.lt ?b ?c, H'' : E.eq ?c ?d |- E.lt ?a ?d ]
+          => destruct (E.compare a d); trivial; destruct (E.compare a c); destruct (E.compare b d)
+      end;
+      repeat match goal with
+               | [ H : False |- _ ] => destruct H
+               | [ H : E.eq ?x ?y |- _ ]
+                 => unique pose proof (E.eq_sym H)
+               | [ x : key |- _ ]
+                 => unique pose proof (E.eq_refl x)
+               | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
+                 => unique pose proof (E.eq_trans H H')
+               | [ H : E.lt ?x ?y, H' : E.lt ?y ?z |- _ ]
+                 => unique pose proof (E.lt_trans H H')
+               | [ H : E.lt ?x ?y, H' : E.eq ?x ?y |- _ ]
+                 => unique pose proof (E.lt_not_eq H H')
+             end. }
+  Qed.
+
+  Lemma MEquiv_Equiv {elt} (eq_elt : relation elt) m1 m2
+  : M.Equiv (eq * option_lift_relation eq_elt)%signature m1 m2
+    -> Equiv eq_elt m1 m2.
+  Proof.
+    SearchAbout Equiv.
+    unfold Equiv, M.Equiv.
+
 
   Lemma from_to_string_map {elt}
         (eq_elt : relation elt)
-        `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+        `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
   : forall x : t elt,
       option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (to_string x))) (Some x)
       /\ snd (from_string (A := t elt) (to_string x)) = ""%string.
@@ -1332,7 +1627,11 @@ Check M.map2_2.
                     assert G' by (rewrite <- H; exact H');
                       clear H'
                | _ => solve [ eauto using adj_elements_1 ]
-             end. }
+             end.
+
+      apply adj_elements_1 in H3; eauto.
+
+      admit. }
     { assert (H' := @from_to_string_2
                       _ R _).
       apply H'. }
@@ -1374,8 +1673,10 @@ Check M.map2_2.
                     [ | rewrite <- H in H'; exact H' ];
                     simpl
              | _ => eapply H'; clear H'
+             | _ => solve [ subst R; eauto ]
              | _ => solve [ subst R; eauto using adj_elements_2, adj_elements_1 ]
            end.
+    Focus 2.
   Qed.
 
   Definition PrefixSerializable_map {elt} {eq_elt} `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}

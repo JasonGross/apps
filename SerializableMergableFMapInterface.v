@@ -24,19 +24,19 @@ Module Type SerializableMergableMapInterface (E : SerializableOrderedType).
     Local Existing Instance Deserializable_map.
     Axiom from_to_string_map
     : forall (eq_elt : relation elt)
-             `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt},
+             `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt},
       forall x : t elt,
         option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (to_string x))) (Some x)
         /\ snd (from_string (A := t elt) (to_string x)) = ""%string.
     Axiom prefix_closed_map
     : forall (eq_elt : relation elt)
-             `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt},
+             `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt},
       forall s1 s2 x,
         option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) s1)) (Some x)
         -> option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (s1 ++ s2))) (Some x)
            /\ snd (from_string (A := t elt) (s1 ++ s2)) = (snd (from_string (A := t elt) s1) ++ s2)%string.
 
-    Definition PrefixSerializable_map {eq_elt} `{Reflexive elt eq_elt, PrefixSerializable elt eq_elt}
+    Definition PrefixSerializable_map {eq_elt} `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
     : PrefixSerializable (t elt) (Equiv eq_elt)
       := {| serialize := _;
             deserialize := _;

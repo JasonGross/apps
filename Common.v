@@ -359,6 +359,7 @@ Ltac cleanup' :=
     | [ H : eqlistA _ _ (_::_) |- _ ] => (inversion H; clear H)
     | [ |- Some _ = Some _ ] => apply f_equal
     | [ |- _ /\ _ ] => split
+    | [ |- _ <-> _ ] => split
     | [ |- (_, _) = (_, _) ] => apply injective_projections
     | [ H : ?x = Some _, H' : appcontext[?x] |- _ ]
       => let h := head x in not constr_eq h (@Some); rewrite H in H'
