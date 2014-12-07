@@ -8,7 +8,6 @@ Set Implicit Arguments.
 Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <: SerializableMergableMapInterface E.
   Definition key := M.key.
   Definition t elt := M.t (nat * option elt).
-Check M.map2_2.
 
   Local Ltac add_facts :=
     repeat match goal with
@@ -1516,13 +1515,152 @@ Check M.map2_2.
              end.
   Qed.
 
+  Local Ltac t_adj_misc_end :=
+    eexists; split; [ | eassumption ];
+    repeat esplit; simpl;
+    eauto.
+
+  Local Ltac t_adj_misc :=
+    repeat esplit;
+    eapply M.elements_2;
+    apply InA_alt;
+    t_adj_misc_end.
+
+  Local Ltac t_adj_misc' :=
+    repeat match goal with
+             | [ H : E.eq ?x ?y |- _ ]
+               => unique pose proof (E.eq_sym H)
+             | [ x : key |- _ ]
+               => unique pose proof (E.eq_refl x)
+             | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
+               => unique pose proof (E.eq_trans H H')
+             | [ H : E.eq ?k' ?k, H' : List.In (?k, ?v) ?ls |- _ ]
+               => unique pose proof (proj2 (@InA_alt _ (@M.eq_key_elt _) (k', v) ls) (ex_intro _ (k, v) (conj (conj H (reflexivity _)) H')))
+             | [ H : InA _ _ (M.elements _) |- _ ]
+               => unique pose proof (M.elements_2 H)
+             | [ H : M.MapsTo ?x ?e ?m |- _ ]
+               => unique pose proof (M.find_1 H)
+           end;
+    cleanup.
+
+  Local Ltac t_adj_destruct :=
+    repeat match goal with
+             | [ H : _ |- _ ] => setoid_rewrite InA_alt in H
+             | _ => setoid_rewrite InA_alt
+             | _ => progress split_ex_in_hyps
+             | _ => progress destruct_head ex
+             | _ => progress destruct_head_hnf and
+             | _ => progress destruct_head prod
+             | _ => progress destruct_head False
+             | _ => progress subst
+             | _ => progress hnf in *
+             | _ => progress simpl in *
+             | [ H : (_, _) = (_, _) |- _ ] => (inversion H; clear H)
+             | [ H : appcontext[_ /\ List.In _ _] |- _ ]
+               => edestruct H; clear H; [ repeat exists; hnf; simpl | eassumption | ]; simpl; try reflexivity; []
+             | [ H : appcontext[exists e, M.MapsTo _ _ _] |- _ ]
+               => edestruct H; clear H; [ repeat exists; hnf; simpl | eassumption | ]; simpl; try reflexivity; []
+             | [ H : appcontext[_ /\ List.In _ _] |- _ ]
+               => edestruct H; clear H; [ solve [ t_adj_misc ] | ]
+           end.
+
+  Local Ltac t_adj_specialize :=
+    repeat match goal with
+             | [ H : forall a b c d e f, _ -> ?T _ _ _ -> _, H' : ?T _ _ _ |- _ ]
+               => specialize (fun a b c d e k => H a b c d e _ k H')
+             | [ H : forall a b c d e f, _ -> ?T _ _ _ -> _, H' : ?T _ _ _ |- _ ]
+               => specialize (fun a b c k => H a b c _ _ _ k H')
+             | [ H : forall a b c d e, _ -> ?T _ _ _ -> _, H' : ?T _ _ _ |- _ ]
+               => specialize (fun b c k => H _ b c _ _ k H')
+             | [ H : forall a b c, ?T _ _ _ -> _, H' : ?T _ _ _ |- _ ]
+               => specialize (H _ _ _ H')
+             | [ H : forall b c, _ -> _ |- _ ]
+               => specialize (H _ _ (reflexivity _))
+             | [ H : forall a b c, _ -> _ |- _ ]
+               => specialize (H _ _ _ (reflexivity _))
+           end.
+
+  Lemma adj_elements' {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+        (R0 := (eq * option_lift_relation eq_elt)%signature)
+        (R1 := (E.eq * R0)%signature)
+        (HND : NoDupA (@eq_key _) ls)
+  : (forall x, InA R1 x ls <-> InA R1 x (M.elements m))
+    <-> M.Equiv R0 (from_internal_elements ls) m.
+  Proof.
+    unfold M.Equiv, M.In; subst R0 R1.
+    repeat (split || intro);
+      repeat match goal with
+               | [ H : _ |- _ ]
+                 => setoid_rewrite (@InA_from_internal_elements_2 : forall a b c d, impl _ _) in H
+               | [ H : appcontext[M.MapsTo _ _ (from_internal_elements ?ls)] |- _ ]
+                 => setoid_rewrite <- (@InA_from_internal_elements_1 _ ls _ _ HND : impl _ _) in H
+               | _ => progress split_iff
+               | _ => progress destruct_head ex
+               | _ => progress destruct_head prod
+               | [ H : forall a : prod _ _, _ |- _ ] => specialize (fun a b => H (a, b))
+               | [ H : _ |- _ ] => setoid_rewrite <- (M.elements_1 : forall a b c d, impl _ _) in H
+               | [ H : _ |- _ ] => setoid_rewrite (M.elements_2 : forall a b c d, impl _ _) in H
+               | [ |- exists e, M.MapsTo ?k e (from_internal_elements ?ls) ]
+                 => setoid_rewrite <- (@InA_from_internal_elements_1 _ ls k _ HND : impl _ _)
+               | [ |- InA _ _ (M.elements _) ]
+                 => apply M.elements_1
+             end;
+      eauto;
+      t_adj_destruct.
+    { repeat first [ progress t_adj_specialize
+                   | progress t_adj_destruct ].
+      t_adj_misc. }
+    { match goal with
+        | [ H : M.MapsTo ?x ?e ?m |- _ ]
+          => atomic m; unique pose proof (M.elements_1 H)
+      end;
+      repeat first [ progress t_adj_specialize
+                   | progress t_adj_destruct ].
+      eexists; t_adj_misc_end. }
+    { repeat first [ progress t_adj_specialize
+                   | progress t_adj_destruct ].
+      t_adj_misc'. }
+    { t_adj_specialize.
+      t_adj_destruct.
+      t_adj_misc'. }
+    { match goal with
+        | [ H : M.MapsTo ?x ?e ?m |- _ ]
+          => atomic m; unique pose proof (M.elements_1 H)
+      end;
+      repeat first [ progress t_adj_specialize
+                   | progress t_adj_destruct ].
+      t_adj_misc_end.
+      t_adj_destruct; destruct_head option;
+      trivial; t_adj_destruct.
+      { etransitivity; eauto. }
+      { etransitivity; eauto. } }
+    { match goal with
+        | [ H : M.MapsTo ?x ?e ?m |- _ ]
+          => atomic m; unique pose proof (M.elements_1 H)
+      end;
+      repeat first [ progress t_adj_specialize
+                   | progress t_adj_destruct ];
+      t_adj_misc'.
+      repeat match goal with
+               | [ H : ?x = ?y, H' : ?y = ?x |- _ ] => atomic y; clear H
+               | _ => progress subst
+             end.
+      t_adj_misc_end.
+      lazy.
+      destruct_head option; trivial;
+      destruct_head False.
+      { etransitivity; eauto.
+        symmetry; eauto. } }
+  Qed.
+
   Lemma adj_elements_equiv {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+        (HND : NoDupA (@eq_key _) ls)
   : equivlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
                      ls
                      (M.elements m)
     <-> M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m.
   Proof.
-    admit.
+    apply adj_elements'; eauto.
   Qed.
 
   Lemma eqlistA_equivlistA {A} {R R' : relation A} `{Transitive A R'}
@@ -1540,18 +1678,54 @@ Check M.map2_2.
               | split_iff; right; eauto ].
   Qed.
 
+  Lemma NoDupA_eqlistA {A} {R R' : relation A} `{Equivalence A R'} ls ls'
+        (H' : forall x y : A, R x y -> R' x y)
+        (H'' : forall x y : A, R x y -> R' y x)
+        (HD : NoDupA R' ls')
+        (HE : eqlistA R ls ls')
+  : NoDupA R' ls.
+  Proof.
+    revert ls HE; induction ls'; intros ls HE;
+    inversion HE; subst; clear HE;
+    inversion HD; subst; clear HD;
+    trivial.
+    constructor; eauto.
+    repeat match goal with
+             | _ => intro
+             | [ H : ~_ |- _ ] => apply H; clear H
+             | _ => eassumption
+             | [ H : _ |- _ ] => rewrite <- H; []
+             | [ H : _ |- _ ] => rewrite (H'' _ _ H); []
+             | [ H : _ |- _ ] => apply eqlistA_equivlistA in H4; unfold Equivalence.equiv in *; eauto; []
+           end.
+  Qed.
+
   Lemma adj_elements_1 {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
   : eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
                      ls
                      (M.elements m)
     -> M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m.
   Proof.
+    intro H'.
     rewrite <- adj_elements_equiv; trivial.
-    intros; eapply eqlistA_equivlistA; eauto.
-    intros; symmetry; trivial.
+    { intros; eapply eqlistA_equivlistA; eauto.
+      intros; symmetry; trivial. }
+    { assert (Equivalence
+                (E.eq *
+                 (@eq nat * option_lift_relation eq_elt)%signature))
+        by (split; typeclasses eauto).
+      assert (Equivalence (eq_key (elt:=nat * option elt)))
+        by (split; typeclasses eauto).
+      eapply NoDupA_eqlistA;
+        try first [ eassumption
+                  | apply M.elements_3w ];
+      unfold eq_key; intros; destruct_head_hnf and; hnf in *;
+      destruct_head prod;
+      eauto. }
   Qed.
 
   Lemma adj_elements_2 {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
+        (HND : NoDupA (@eq_key _) ls)
         (H' : Sorted (@M.lt_key _) ls)
   : M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m
     -> eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature

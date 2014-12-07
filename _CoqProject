@@ -18,6 +18,7 @@ FunctionAppTactics.v
 TrustedTickBox.v
 TrustedServerSyncBox.v
 SerializableMergableFMapInterface.v
+SerializableMergableFMapImplementation.v
 ExampleMBTARequester.v
 ExamplePwMgr.v
 ExamplePwMgr2.v
