@@ -1,4 +1,4 @@
-Require Import Ascii FunctionApp List Program.Basics String.
+Require Import Ascii FunctionApp List Program.Basics String System.
 Require Import FunctionAppLemmas FunctionAppTactics.
 Import ListNotations.
 Open Scope string_scope.
@@ -91,21 +91,6 @@ Section ui.
 End ui.
 
 
-Inductive httpStatus :=
-| httpOk
-| httpPreconditionFailed
-| httpUnrecognizedCode.
-
-Record httpResponse :=
-  {
-    httpResponseStatus : httpStatus;
-    httpResponseStatusText : string;
-    httpResponseProtocol : string;
-    httpResponseHeader : list (string * string);
-    httpResponseBody : string
-  }.
-
-
 Section net.
 
   Inductive netInput :=
@@ -166,19 +151,20 @@ Local Open Scope type_scope.
 
 Section pwMgr.
 
-  Inductive pwMgrInput :=
-  | pwMgrConsoleIn : string -> pwMgrInput
-  | pwMgrNetInput : netInput -> pwMgrInput.
+  Inductive input :=
+  | pwMgrConsoleIn : string -> input
+  | pwMgrNetInput : netInput -> input.
 
   Context (world : Type).
-  Context (consoleOut : string -> action world).
-  Context (httpPOST : string -> list (string * string) -> (httpResponse -> pwMgrInput) -> action world).
+  Context (sys : systemActions input world).
+
+  Definition consoleIn := pwMgrConsoleIn.
 
   Inductive pwMgrMessage :=
   | pwMgrEncrypt : string -> pwMgrMessage
   | pwMgrDecrypt : string -> pwMgrMessage.
 
-  Definition pwMgrLoopBody pwMgrLoop ui net : @stackInput pwMgrMessage pwMgrInput -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage pwMgrInput world :=
+  Definition pwMgrLoopBody pwMgrLoop ui net : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
     fun i =>
       match i with
         | inl (pwMgrEncrypt s) =>
@@ -193,7 +179,7 @@ Section pwMgr.
           let (a, net') := getStep net i' in (a, pwMgrLoop ui net')
       end.
 
-  CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage pwMgrInput world :=
+  CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage input world :=
     Step (pwMgrLoopBody pwMgrLoop ui net).
 
   Definition
@@ -204,7 +190,7 @@ Section pwMgr.
          (string -> action world') ->
          process uiInput world') :=
     ui
-      (fun s => stackLift (consoleOut s))
+      (fun s => stackLift (consoleOut sys s))
       (fun s => stackPush (pwMgrEncrypt s)).
 
   Definition
@@ -215,12 +201,12 @@ Section pwMgr.
          (string -> action world') ->
          process netInput world') :=
     net
-      (fun uri data cb => stackLift (httpPOST uri data (fun r => pwMgrNetInput (cb r))))
+      (fun uri data cb => stackLift (httpPOST sys uri data (fun r => pwMgrNetInput (cb r))))
       (fun s => stackPush (pwMgrDecrypt s)).
 
   Definition
     mkPwMgrStack ui net :
-    stackProcess pwMgrMessage pwMgrInput world :=
+    stackProcess pwMgrMessage input world :=
     pwMgrLoop (wrap_ui ui) (wrap_net net).
 
   Definition pwMgrStack := mkPwMgrStack ui net.
@@ -246,7 +232,7 @@ Section pwMgr.
                   | [ |- appcontext[match find ?f ?ls with _ => _ end] ] => destruct (find f ls)
                   | [ |- appcontext[match ?x with (_, _) => _ end] ] => rewrite (@surjective_pairing _ _ x)
                 end) in
-    emptiesStackForever_t pwMgrGood' pwMgrInput (@pwMgrLoop_eta) (@pwMgrLoop) tac.
+    emptiesStackForever_t pwMgrGood' input (@pwMgrLoop_eta) (@pwMgrLoop) tac.
   Qed.
   *)
 
@@ -264,10 +250,10 @@ Section pwMgr.
     admit.
   Qed.
 
-  Definition pwMgr := runStackProcess pwMgrStack (pwMgrGood nil).
+  Definition proc := runStackProcess pwMgrStack (pwMgrGood nil).
 
 End pwMgr.
 
 
 Require Import ExtrOcamlBasic ExtrOcamlString.
-Extraction "ExamplePwMgr" pwMgr.
+Extraction "ExamplePwMgr" proc consoleIn.
