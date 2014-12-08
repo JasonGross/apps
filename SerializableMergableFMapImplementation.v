@@ -1390,12 +1390,165 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       cleanup. }
   Qed.
 
+  Fixpoint is_sorted {elt} (elements : list (M.key * (nat * option elt)))
+  : bool
+    := match elements with
+         | nil => true
+         | x::xs => match xs with
+                      | nil => true
+                      | y::ys => match E.compare (fst x) (fst y) with
+                                   | LT _ => is_sorted xs
+                                   | EQ _ => false
+                                   | GT _ => false
+                                 end
+                    end
+       end.
+
+  Lemma Sorted_is_sorted {elt} ls
+  : @is_sorted elt ls = true <-> Sorted (@M.lt_key _) ls.
+  Proof.
+    rewrite Sorted_LocallySorted_iff.
+    induction ls; simpl; split; intros; try constructor; simpl in *;
+    split_iff;
+    generalize dependent (is_sorted ls); intros;
+    destruct ls; simpl in *; try constructor;
+    repeat match goal with
+             | [ H : LocallySorted _ (_::_::_) |- _ ] => (inversion H; clear H)
+             | _ => progress intuition subst
+             | _ => progress hnf in *
+             | [ H : E.lt ?a ?b |- _ ] => unique pose proof (E.lt_not_eq H : _ -> False)
+             | [ H : E.lt ?a ?b, H' : E.lt ?b ?c |- _ ] => unique pose proof (E.lt_trans H H')
+           end;
+    edestruct E.compare;
+    repeat match goal with
+             | _ => progress subst
+             | [ H : E.lt ?a ?b |- _ ] => unique pose proof (E.lt_not_eq H : _ -> False)
+             | [ H : E.lt ?a ?b, H' : E.lt ?b ?c |- _ ] => unique pose proof (E.lt_trans H H')
+             | [ H : False |- _ ] => destruct H
+             | [ H : E.eq ?a ?a -> False |- _ ] => unique pose proof (H (E.eq_refl _))
+             | _ => eauto; congruence
+           end.
+  Qed.
+
+  Lemma not_Sorted_is_sorted {elt} ls
+  : @is_sorted elt ls = false <-> ~Sorted (@M.lt_key _) ls.
+  Proof.
+    rewrite <- Sorted_is_sorted.
+    destruct (is_sorted ls); split; congruence.
+  Qed.
+
+  Local Instance eq_prod_lt_compat {A R}
+  : Proper
+      (E.eq * R ==> E.eq * R ==> iff)
+      (@M.lt_key A).
+  Proof.
+    lazy; intros; destruct_head prod; split; destruct_head and; intros;
+    match goal with
+      | [ H : E.eq ?b ?a, H' : E.lt ?b ?c, H'' : E.eq ?c ?d |- E.lt ?a ?d ]
+        => destruct (E.compare a d); trivial; destruct (E.compare a c); destruct (E.compare b d)
+      | [ H : E.eq ?a ?b, H' : E.lt ?b ?c, H'' : E.eq ?d ?c |- E.lt ?a ?d ]
+        => destruct (E.compare a d); trivial; destruct (E.compare a c); destruct (E.compare b d)
+    end;
+    repeat match goal with
+             | [ H : False |- _ ] => destruct H
+             | [ H : E.eq ?x ?y |- _ ]
+               => unique pose proof (E.eq_sym H)
+             | [ x : key |- _ ]
+               => unique pose proof (E.eq_refl x)
+             | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
+               => unique pose proof (E.eq_trans H H')
+             | [ H : E.lt ?x ?y, H' : E.lt ?y ?z |- _ ]
+               => unique pose proof (E.lt_trans H H')
+             | [ H : E.lt ?x ?y, H' : E.eq ?x ?y |- _ ]
+               => unique pose proof (E.lt_not_eq H H')
+           end.
+  Qed.
+
+  Local Instance eq_lt_compat {A}
+  : Proper
+      (@eq_key A ==> @eq_key A ==> iff)
+      (@M.lt_key A).
+  Proof.
+    lazy; intros; destruct_head prod; split; intros;
+    match goal with
+      | [ H : E.eq ?b ?a, H' : E.lt ?b ?c, H'' : E.eq ?c ?d |- E.lt ?a ?d ]
+        => destruct (E.compare a d); trivial; destruct (E.compare a c); destruct (E.compare b d)
+      | [ H : E.eq ?a ?b, H' : E.lt ?b ?c, H'' : E.eq ?d ?c |- E.lt ?a ?d ]
+        => destruct (E.compare a d); trivial; destruct (E.compare a c); destruct (E.compare b d)
+    end;
+    repeat match goal with
+             | [ H : False |- _ ] => destruct H
+             | [ H : E.eq ?x ?y |- _ ]
+               => unique pose proof (E.eq_sym H)
+             | [ x : key |- _ ]
+               => unique pose proof (E.eq_refl x)
+             | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
+               => unique pose proof (E.eq_trans H H')
+             | [ H : E.lt ?x ?y, H' : E.lt ?y ?z |- _ ]
+               => unique pose proof (E.lt_trans H H')
+             | [ H : E.lt ?x ?y, H' : E.eq ?x ?y |- _ ]
+               => unique pose proof (E.lt_not_eq H H')
+           end.
+  Qed.
+
+  Lemma Sorted_eqlistA {elt} {R'} `{Transitive elt R'} {R : relation elt} ls ls'
+        `{Proper _ (R ==> R ==> iff)%signature R'}
+  : eqlistA R ls ls' -> (Sorted R' ls <-> Sorted R' ls').
+  Proof.
+    rewrite !Sorted_LocallySorted_iff.
+    revert ls'; induction ls; intros ls' HE.
+    { inversion HE; subst; reflexivity. }
+    { split; intro Hls; inversion Hls; clear Hls; subst;
+      inversion HE; clear HE; subst;
+      repeat match goal with
+               | _ => progress subst
+               | _ => progress split_iff
+               | [ H : eqlistA _ _ nil |- _ ] => (inversion H; clear H)
+               | [ H : eqlistA _ nil _ |- _ ] => (inversion H; clear H)
+               | [ H : eqlistA _ (_::_) ?x |- _ ] => (atomic x; inversion H)
+               | [ H : eqlistA _ ?x (_::_) |- _ ] => (atomic x; inversion H)
+               | _ => solve [ constructor | eauto ]
+               | [ |- LocallySorted _ (_::_::_) ] => constructor; eauto
+               | _ => progress unfold Proper, respectful, impl in *
+             end. }
+  Qed.
+
+  Local Instance eq_key_Equivalence {A} : Equivalence (@eq_key A).
+  Proof.
+    split; typeclasses eauto.
+  Qed.
+
+  Local Instance lt_key_StrictOrder {A} : StrictOrder (@M.lt_key A).
+  Proof.
+    split.
+    { intros x H'.
+      apply E.lt_not_eq in H'.
+      apply H', E.eq_refl. }
+    { intros ???; apply E.lt_trans. }
+  Qed.
+
+  Lemma is_sorted_NoDupA {elt} ls
+        (H : @is_sorted elt ls = true)
+  : NoDupA (@eq_key _) ls.
+  Proof.
+    apply Sorted_is_sorted in H.
+    eapply SortA_NoDupA; eauto; typeclasses eauto.
+  Qed.
+
+  Definition sorted_from_internal_elements {elt} (ls : option (list _))
+    := match ls with
+         | Some ls' => if @is_sorted elt ls'
+                       then Some (from_internal_elements ls')
+                       else None
+         | None => None
+       end.
+
   Local Instance Serializable_map {elt} `{Serializable elt} : Serializable (t elt)
     := {| to_string x := to_string (M.elements x) |}.
 
   Local Instance Deserializable_map {elt} `{Deserializable elt} : Deserializable (t elt)
     := {| from_string s := prod_map
-                             (option_map from_internal_elements)
+                             (sorted_from_internal_elements)
                              id
                              (from_string (A := list (M.key * (nat * option elt))) s) |}.
 
@@ -1725,44 +1878,19 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
   Qed.
 
   Lemma adj_elements_2 {elt} eq_elt `{Equivalence elt eq_elt} ls (m : t elt)
-        (HND : NoDupA (@eq_key _) ls)
         (H' : Sorted (@M.lt_key _) ls)
   : M.Equiv (eq * option_lift_relation eq_elt)%signature (from_internal_elements ls) m
     -> eqlistA (E.eq * (eq * option_lift_relation eq_elt))%signature
                ls
                (M.elements m).
   Proof.
+    pose proof (SortA_NoDupA _ _ _ H') as HND.
     rewrite <- adj_elements_equiv; trivial.
     pose proof (M.elements_3 m).
     eapply SortA_equivlistA_eqlistA;
       try eassumption;
       try typeclasses eauto.
     { split; typeclasses eauto. }
-    { split; unfold M.lt_key; simpl.
-      { intros ? H1; apply E.lt_not_eq in H1.
-        apply (H1 (E.eq_refl _)). }
-      { repeat intro; eapply E.lt_trans; eassumption. } }
-    { repeat intro; destruct_head_hnf and; hnf in *;
-      cleanup;
-      hnf in *; simpl in *;
-      add_facts;
-      match goal with
-        | [ H : E.eq ?a ?b, H' : E.lt ?b ?c, H'' : E.eq ?c ?d |- E.lt ?a ?d ]
-          => destruct (E.compare a d); trivial; destruct (E.compare a c); destruct (E.compare b d)
-      end;
-      repeat match goal with
-               | [ H : False |- _ ] => destruct H
-               | [ H : E.eq ?x ?y |- _ ]
-                 => unique pose proof (E.eq_sym H)
-               | [ x : key |- _ ]
-                 => unique pose proof (E.eq_refl x)
-               | [ H : E.eq ?x ?y, H' : E.eq ?y ?z |- _ ]
-                 => unique pose proof (E.eq_trans H H')
-               | [ H : E.lt ?x ?y, H' : E.lt ?y ?z |- _ ]
-                 => unique pose proof (E.lt_trans H H')
-               | [ H : E.lt ?x ?y, H' : E.eq ?x ?y |- _ ]
-                 => unique pose proof (E.lt_not_eq H H')
-             end. }
   Qed.
 
   Lemma MEquiv_Equiv {elt} (eq_elt : relation elt) m1 m2
@@ -1803,13 +1931,20 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
     intros; simpl; unfold id.
     set (R := (eqlistA (E.eq * (eq * (option_lift_relation eq_elt)))%signature) : relation (list (M.key * (nat * option elt)))).
     split.
-    { simpl.
+    { unfold sorted_from_internal_elements.
+      simpl.
       pose proof (@from_to_string_1 _ R _ (M.elements x)).
+      pose proof (M.elements_3 x).
       repeat match goal with
                | _ => intro
                | _ => progress cleanup
                | _ => progress unfold option_map in *
                | _ => progress simpl in *
+               | [ H : is_sorted _ = false |- _ ] => apply not_Sorted_is_sorted in H
+               | [ H : R ?x ?y, H' : Sorted _ ?y |- _ ]
+                 => unique pose proof (proj2 (Sorted_eqlistA H) H')
+               | [ H : R ?x ?y, H' : Sorted _ ?x |- _ ]
+                 => unique pose proof (proj1 (Sorted_eqlistA H) H')
                | [ |- appcontext[match ?E with _ => _ end] ]
                  => case_eq E
                | [ H : ?x = @None ?T, H' : appcontext G[?x] |- _ ]
@@ -1826,16 +1961,18 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
       apply H'. }
   Qed.
 
-  Lemma prefix_closed_map {elt}
+  Lemma prefix_closed_map_strict {elt}
         (eq_elt : relation elt)
         `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
+        (R0 := (eq * (option_lift_relation eq_elt))%signature)
   : forall s1 s2 x,
-      option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) s1)) (Some x)
-      -> option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (s1 ++ s2))) (Some x)
+      option_lift_relation (M.Equiv R0) (fst (from_string (A := t elt) s1)) (Some x)
+      -> option_lift_relation (M.Equiv R0) (fst (from_string (A := t elt) (s1 ++ s2))) (Some x)
          /\ snd (from_string (A := t elt) (s1 ++ s2)) = (snd (from_string (A := t elt) s1) ++ s2)%string.
   Proof.
     simpl; unfold id.
-    set (R := (eqlistA (E.eq * (eq * (option_lift_relation eq_elt)))%signature) : relation (list (M.key * (nat * option elt)))).
+    set (R := eqlistA (E.eq * R0)%signature).
+    assert (Reflexive R) by (subst R; typeclasses eauto).
     intros s1 s2 x; split; simpl in *;
     [ assert (H' := @prefix_closed_1 _ R _ s1 s2)
     | assert (H' := @prefix_closed_2 _ R _ s1 s2 (M.elements x)) ];
@@ -1864,12 +2001,46 @@ Module MakeSerializableMergableMap (E : SerializableOrderedType) (M : Sfun E) <:
              | _ => eapply H'; clear H'
              | _ => solve [ subst R; eauto ]
              | _ => solve [ subst R; eauto using adj_elements_2, adj_elements_1 ]
+             | [ H : is_sorted _ = false |- _ ] => apply not_Sorted_is_sorted in H
+             | [ H : is_sorted _ = true |- _ ] => apply Sorted_is_sorted in H
+             | [ H : R ?x ?y, H' : Sorted _ ?y |- _ ]
+               => unique pose proof (proj2 (Sorted_eqlistA H) H')
+             | [ H : R ?x ?y, H' : Sorted _ ?x |- _ ]
+               => unique pose proof (proj1 (Sorted_eqlistA H) H')
+             | [ H : forall _, R _ _ -> R _ _ |- _ ]
+               => unique pose proof (H' _ (reflexivity _))
+             | [ H : ?T, H' : ~?T |- _ ] => destruct (H' H)
            end.
-    admit.
-    exfalso; clear; admit.
-    exfalso; clear; admit.
-    Grab Existential Variables.
-    admit.
+  Qed.
+
+  Lemma prefix_closed_map {elt}
+        (eq_elt : relation elt)
+        `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
+  : forall s1 s2 x,
+      option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) s1)) (Some x)
+      -> option_lift_relation (Equiv eq_elt) (fst (from_string (A := t elt) (s1 ++ s2))) (Some x)
+         /\ snd (from_string (A := t elt) (s1 ++ s2)) = (snd (from_string (A := t elt) s1) ++ s2)%string.
+  Proof.
+    intros s1 s2 x.
+    pose proof (@prefix_closed_map_strict elt eq_elt _ _ s1 s2).
+    repeat match goal with
+             | _ => progress unfold option_lift_relation
+             | _ => progress unfold id in *
+             | [ H : ?x = Some _, H' : appcontext[?x] |- _ ] => rewrite H in H'
+             | [ H : ?x = None, H' : appcontext[?x] |- _ ] => rewrite H in H'
+             | _ => progress simpl in *
+             | [ H : appcontext[match ?E with _ => _ end] |- _ ]
+               => revert H; case_eq E; intros
+             | [ |- appcontext[match ?E with _ => _ end] ]
+               => case_eq E; intros
+             | [ H : forall x, M.Equiv _ _ _ -> _ |- _ ]
+               => specialize (H _ (reflexivity _))
+             | _ => progress split_and
+             | [ H : False |- _ ] => destruct H
+             | [ H : M.Equiv _ _ _ |- _ ] => apply MEquiv_Equiv in H
+             | [ |- _ /\ _ ] => split; eauto; []
+             | _ => solve [ etransitivity; eauto ]
+           end.
   Qed.
 
   Definition PrefixSerializable_map {elt} {eq_elt} `{Equivalence elt eq_elt, PrefixSerializable elt eq_elt}
