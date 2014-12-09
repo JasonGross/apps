@@ -250,7 +250,7 @@ Section pwMgr.
     admit.
   Qed.
 
-  Definition proc := runStackProcess pwMgrStack (pwMgrGood nil).
+  Definition proc := (@id world, runStackProcess pwMgrStack (pwMgrGood nil)).
 
 End pwMgr.
 

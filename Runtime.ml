@@ -30,7 +30,7 @@ module type APPLICATION =
 
     type input
 
-    val proc : (input, 'world) systemActions -> (input, 'world) process
+    val proc : (input, 'world) systemActions -> 'world action * (input, 'world) process
 
     val consoleIn : char list -> input
 
@@ -147,11 +147,12 @@ module Main(P : APPLICATION) : MAIN = struct
     ()
 
   let main () =
-    let step = ref (fun i -> getStep (P.proc sys) i) in
+    let step = ref (fun i -> raise (Failure "uninitialized")) in
     let rec send i = doStep (!step i)
     and doStep (out, proc') =
       step := getStep proc';
       out (fun send -> ()) send in
+    doStep (P.proc sys);
     readStdin send;
     Unixqueue.run esys
 end;;
