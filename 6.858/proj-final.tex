@@ -144,6 +144,8 @@ An interesting side-effect of having all communication protocols be message-pass
 
 Although our framework only allows asynchronous communication, we currently only support single-threaded applications.  Therefore, a malicious UI Box could collude with a malicious Net Box to starve the Tick Box of computation cycles at the just the right time, leaking unencrypted information from the UI Box to the Net Box (and then out to the web).  We currently don't defend against this attack, although we do ensure, given sufficient granularity of the system timer, that we can notice such things happening; our Tick Box will raise a warning when it does not get ticks frequently enough.
 
+\todo{talk about termination and timing proofs}
+
 \section{Delivered Implementation}
 \subsection{The Code}
 We deliver a proof-of-concept password manager written mostly within Coq, with OCaml shims for communicating with the outside world.  \todo{Include instructions for running}

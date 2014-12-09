@@ -18,5 +18,8 @@ Makefile.coq.bak
 *.synctex.gz
 *.synctex.gz(busy)
 *.aux
+*.toc
+*.nav
+*.snm
 
 /6.858/proj-final.tar.gz
