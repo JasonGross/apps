@@ -17,10 +17,10 @@ module type APPLICATION =
       }
 
     type ('input, 'world) systemActions = {
-        consoleOut : (char list -> 'world action);
+        consoleOut : char list -> 'world action;
         getNanosecs : (Big.big_int -> 'input) -> 'world action;
         getRandomness : Big.big_int -> (char list -> 'input) -> 'world action;
-        httpPOST : (char list -> (char list * char list) list -> (httpResponse -> 'input) -> 'world action);
+        httpPOST : char list -> (char list * char list) list -> (httpResponse -> 'input) -> 'world action;
         sleepNanosecs : Big.big_int -> 'input -> 'world action;
       }
 
