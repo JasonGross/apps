@@ -19,6 +19,7 @@ module type APPLICATION =
     type ('input, 'world) systemActions = {
         consoleOut : (char list -> 'world action);
         getNanosecs : (Big.big_int -> 'input) -> 'world action;
+        getRandomness : Big.big_int -> (char list -> 'input) -> 'world action;
         httpPOST : (char list -> (char list * char list) list -> (httpResponse -> 'input) -> 'world action);
         sleepNanosecs : Big.big_int -> 'input -> 'world action;
       }
@@ -48,6 +49,10 @@ let esys = Unixqueue.standard_event_system ();;
 
 let stdin_buf = Uq_io.create_in_buffer (`Polldescr (`Read_write, Unix.stdin, esys));;
 
+let urandom_buf =
+  let fd = Unix.openfile "/dev/urandom" [Unix.O_RDONLY] 0 in
+  Uq_io.create_in_buffer (`Polldescr (`Read_write, fd, esys));;
+
 let pipeline = new Http_client.pipeline;;
 
 let ctx = Ssl.create_context Ssl.TLSv1_2 Ssl.Client_context in
@@ -74,7 +79,7 @@ module Main(P : APPLICATION) : MAIN = struct
     match Lazy.force proc with
     | P.Step f -> f
 
-  let rec sys = {
+  let rec sys : (P.input, 'a) P.systemActions = {
 
     P.consoleOut = begin fun s () ->
       print_endline (ExtString.String.implode s)
@@ -82,6 +87,18 @@ module Main(P : APPLICATION) : MAIN = struct
 
     P.getNanosecs = begin fun cb () ->
       doStep (!step (cb (getNanosecs ())))
+    end;
+
+    P.getRandomness = begin fun len cb () ->
+      let len' = Big_int.int_of_big_int len in
+      let buf = String.create len' in
+      let e = Uq_io.really_input_e (`Buffer_in urandom_buf) (`String buf) 0 len' in
+      Uq_engines.when_state
+        ~is_done:(fun () ->
+          doStep (!step (cb (ExtString.String.explode buf))))
+        ~is_error:(fun ex ->
+          prerr_endline ("urandom: " ^ Printexc.to_string ex))
+        e
     end;
 
     P.httpPOST = begin fun uri data cb () ->
