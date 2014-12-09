@@ -79,29 +79,32 @@ module Main(P : APPLICATION) : MAIN = struct
     match Lazy.force proc with
     | P.Step f -> f
 
-  let rec sys : (P.input, 'a) P.systemActions = {
+  let sys : (P.input, 'a) P.systemActions = {
 
-    P.consoleOut = begin fun s () ->
-      print_endline (ExtString.String.implode s)
+    P.consoleOut = begin fun s next send ->
+      print_endline (ExtString.String.implode s);
+      next send
     end;
 
-    P.getNanosecs = begin fun cb () ->
-      doStep (!step (cb (getNanosecs ())))
+    P.getNanosecs = begin fun cb next send ->
+      send (cb (getNanosecs ()));
+      next send
     end;
 
-    P.getRandomness = begin fun len cb () ->
+    P.getRandomness = begin fun len cb next send ->
       let len' = Big_int.int_of_big_int len in
       let buf = String.create len' in
       let e = Uq_io.really_input_e (`Buffer_in urandom_buf) (`String buf) 0 len' in
       Uq_engines.when_state
         ~is_done:(fun () ->
-          doStep (!step (cb (ExtString.String.explode buf))))
+          send (cb (ExtString.String.explode buf)))
         ~is_error:(fun ex ->
           prerr_endline ("urandom: " ^ Printexc.to_string ex))
-        e
+        e;
+      next send
     end;
 
-    P.httpPOST = begin fun uri data cb () ->
+    P.httpPOST = begin fun uri data cb next send ->
       let r = new Http_client.post (ExtString.String.implode uri) (List.map (fun (k, v) -> (ExtString.String.implode k, ExtString.String.implode v)) data) in
       pipeline # add_with_callback r (fun m ->
         match m # status with
@@ -116,37 +119,39 @@ module Main(P : APPLICATION) : MAIN = struct
               P.httpResponseProtocol = ExtString.String.explode (m # response_protocol);
               P.httpResponseHeader = List.map (fun (k, v) -> (ExtString.String.explode k, ExtString.String.explode v)) (m # response_header # fields);
               P.httpResponseBody = ExtString.String.explode (m # response_body # value) } in
-            doStep (!step i)
+            send i
         | `Http_protocol_error ex -> prerr_endline ("HTTP: " ^ Printexc.to_string ex)
-        | `Unserved -> prerr_endline "HTTP: unserved request")
+        | `Unserved -> prerr_endline "HTTP: unserved request");
+      next send
     end;
 
-    P.sleepNanosecs = begin fun t i () ->
+    P.sleepNanosecs = begin fun t i next send ->
       Unixqueue.once esys
         (Unixqueue.new_group esys)
         (Big_int.float_of_big_int t *. 1e-9)
-        (fun () ->
-          doStep (!step i))
+        (fun () -> send i);
+      next send
     end;
 
   }
-  and step = ref (fun i -> getStep (P.proc sys) i)
-  and doStep (out, proc') =
-    out ();
-    step := getStep proc'
 
-  let rec readStdin () =
+  let rec readStdin send =
     let e = Uq_io.input_line_e (`Buffer_in stdin_buf) in
     Uq_engines.when_state
       ~is_done:(fun s ->
-        doStep (!step (P.consoleIn (ExtString.String.explode s)));
-        readStdin ())
+        send (P.consoleIn (ExtString.String.explode s));
+        readStdin send)
       ~is_error:(fun ex ->
         prerr_endline ("stdin: " ^ Printexc.to_string ex))
       e;
     ()
 
   let main () =
-    readStdin ();
+    let step = ref (fun i -> getStep (P.proc sys) i) in
+    let rec send i = doStep (!step i)
+    and doStep (out, proc') =
+      step := getStep proc';
+      out (fun send -> ()) send in
+    readStdin send;
     Unixqueue.run esys
 end;;
