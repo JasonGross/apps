@@ -11,3 +11,12 @@ Makefile.coq.bak
 .dir-locals.el
 *.ml
 *.mli
+
+*.log
+*.out
+*.pdf
+*.synctex.gz
+*.synctex.gz(busy)
+*.aux
+
+/6.858/proj-final.tar.gz

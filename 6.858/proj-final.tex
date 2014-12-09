@@ -1,0 +1,172 @@
+\documentclass{article}
+\usepackage{hyperref}
+\usepackage{pageslts}
+\usepackage[strict]{changepage}
+\usepackage{xcolor}
+\usepackage{xy}
+\usepackage{xypic}
+
+\newcommand{\trusted}[1]{*++[o][F=]{#1}}
+\newcommand{\untrusted}[1]{*++[o][F-]{#1}}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+
+\title{Coq Framework for security policies and proof of concept application}
+\author{Anders Kaseorg, Jason Gross, and Peng Wang}
+\date{December 9, 2014}
+\lhead{andersk, jgross, wangpeng} \chead{6.858 Writeup} \rhead{\TeX ed on \today}
+\cfoot{\theCurrentPage\space of \lastpageref{LastPages}}
+\fancypagestyle{plain}{ %
+  \fancyhead{} % remove head
+  \renewcommand{\headrulewidth}{0pt} % remove lines as well
+  \renewcommand{\footrulewidth}{0pt}
+}
+\pagenumbering{arabic}
+
+\newcommand{\todo}[1]{\textbf{\textcolor{red}{\underline{TODO}: #1}}}
+\newcommand{\fullwidth}[1]{\noindent\checkoddpage\makebox[0pt][r]{\makebox[\dimexpr1in+\hoffset+\ifoddpage\oddsidemargin\else\evensidemargin\fi][l]{#1}}}
+\newcommand{\truecenter}[1]{\fullwidth{\parbox[c]{\paperwidth}{#1}}}
+
+\begin{document}
+\maketitle
+\section{Problem}
+Current security policies, such as those on mobile platforms, are very coarse.  We must grant applications permission ``to use the internet'' or ``to use the camera'' or ``to read and write data on the phone''.  It would be nice to be able to talk about more fine-grained security policies.  For example, we might want to allow apps to use the internet for ads, and simultaneously manage sensitive data, without having to worry about it sending sensitive data to the ad servers.  We might want applications that have permission to sync data, but shouldn't be able to leak any of it; they might only have permission to transmit encrypted data.
+
+
+\section{Design}
+We have implemented a framework in the Coq proof assistant for allow modular development of code including trusted and untrusted components without the runtime costs and restrictions of sandboxing.
+
+\subsection{Ensuring Security: The Trusted Code Base}
+{%
+\def\untrusted#1{\save[].[#1]*[F]\frm{}\restore}
+\def\trusted#1{\save[].[#1]*[F=]\frm{}\restore}
+An application consists of some trusted boxes and some untrusted boxes, which communicate with each other via asynchronous message passing.  The trusted code base consists of the code implementing the trusted boxes (for example, encryption algorithms), and a top-level ``wiring diagram'' which enforces modularity.  For example, a password manager application might have the following simplified wiring diagram, with $\xymatrix{*++[F=]{\txt{\textbf{trusted}}}}$ and $\xymatrix{*++[F-]{\txt{untrusted}}}$ boxes:
+
+\noindent
+\[
+\xymatrix@-0.5pc{
+&\untrusted{ddddddrrrr} \\
+&&\untrusted{dddd}\txt{\phantom{UI Box}}& \txt{\phantom{Encrypt Box}} & \untrusted{dddd}\txt{\phantom{Net Box}}&& \\
+&&\txt{\phantom{UI Box}}\ar[r]& \trusted{}\txt{\textbf{Encrypt Box}}\ar[r]     &                 \txt{\phantom{Net Box}}\ar@{=>}[rrr]^>{\txt{Network Out}}&&& \\
+\ar@{=>}[rr]^<{\txt{User In}}&&\txt{UI Box}&  \ar[u]\ar[d]\trusted{}\txt{\textbf{Secret Key}}     &                 \txt{Net Box}& \\
+&&\txt{\phantom{UI Box}}&  \ar[l]\untrusted{}\txt{Decrypt Box}     & \ar[l] \txt{\phantom{Net Box}}&&&\ar@{=>}[lll]^<{\txt{Network In}} \\
+&&\txt{\phantom{UI Box}}& \txt{\phantom{Encrypt Box}} & \txt{\phantom{Net Box}}&& \\
+&&\txt{\phantom{UI Box}}& \txt{\phantom{Encrypt Box}} & \txt{\phantom{Net Box}}&& \\
+}
+\]
+}
+
+\subsection{Enforced Modularity and Parametricity}
+In the example above, the only path from user input to network output goes through the encryption box.  Thus this application, by construction, can leak no unencrypted information from the user to the network via message content.  By setting up the encryption box to send outgoing messages at given predefined times, we can also nearly prevent information leakage via timing side-channels (see \autoref{sec:timing-details} for more details).
+
+More precisely, this enforced modularity is a form of parametricity.  Because the Net Box must be parametric in the input it receives from the Encrypt Box, it should not be able to deduce anything about the input to the Encrypt Box, and thus we don't need to trust its output.  (Of course, we might insert other trusted components, such as one that prevents the Net Box from contacting most servers.  Because these checks are inserted in the source code, an optimizing compiler could elide checks which are obviously true.)
+
+Furthermore, the top-level wiring diagram is a kind of source-level sandboxing:  All implementations are pure, and communicate with the outside world via OCaml shims mediated by the top-level wiring diagram.  Therefore, if there is no wire connecting an untrusted box with a system call, that box cannot make use of that system call.
+
+\section{High-Level Implementation}
+\subsection{Proof of Concept: Password Manager Application}
+We implemented a proof-of-concept application: a password manager. \todo{Actually, we're still working on implementing this.}  The password manager accepts user-input of passwords associated to keys (e.g., websites), and synchronizes them with a remote server over https using a fixed key for identification (not yet verified by the server) and a fixed key for encryption (both set via command line arguments). \todo{Command line arguments not actually implemented yet; keys are currently hardcoded into the application.  Also, we're still in the process of integrating the various parts of the application; we don't have an end-to-end example yet using encryption nor the timing-side-channel avoider.}  Timing side-channels are mostly avoided (again, see \autoref{sec:timing-details} for more).
+
+Unlike the diagram above, we have a single trusted box which handles encryption, decryption, and timing side-channels.  It presents the interface of a simple mutable cell which handles ``update'' and ``request value'' events from the UI, and sends ``got value'' messages back to the UI.  It interfaces with a remote server with a compare-and-set operation via the untrusted Net Box.  Because the remote server uses compare-and-set (to ensure that we don't lose updates from different clients), we need to store our current view of the encrypted state of the server in trusted storage, because it is sent verbatim over the web:
+
+{%
+\def\untrusted#1{\save[].[#1]*[F]\frm{}\restore}
+\def\trusted#1{\save[].[#1]*[F=]\frm{}\restore}
+\truecenter{
+\[
+\mbox{\xymatrix@-1pc{
+&&&&&\ar[dd]{\txt{system tick}}\\
+&\untrusted{ddddddrrrrrrrr} \\
+&&\untrusted{dddd}\txt{\phantom{UI}}&&\trusted{ddddrrr}\txt{\rlap{Server Emulator}}&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&&\untrusted{dddd}\txt{\phantom{Net}}&& \\
+&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&&\ar[r]&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[rr]&&\txt{\phantom{Net}}\ar@{=>}[rr]&&\txt{Compare and Set} \\
+\ar@{=>}[rr]{\txt{User In}}&&\txt{UI}\ar[rr]^{\txt{get}}&&\ar[rr]&\txt{\phantom{Decrypt}}&\trusted{}\txt{Timing}\ar[rr]&&\txt{Net}\ar@{=>}[rr]&&\txt{Get} \\
+&&\txt{\phantom{UI}}\ar@{<-}[rr]^{\txt{gotten}}&&\ar@{<-}[r]&\trusted{}\txt{Decrypt}\ar@{<-}[rrr]&\txt{\phantom{Timing}}&&\txt{\phantom{Net}}\ar@{<=}[rr]&&\txt{Server Response} \\
+&&\txt{\phantom{UI}}&&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&&\txt{\phantom{Net}}&& \\
+&&\txt{\phantom{UI}}&&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&&\txt{\phantom{Net}}&& \\
+}}
+\]
+}}
+
+
+This is only one possible implementation, which we found relatively simple to compose with conceptually clean interfaces.  Another implementation could involve trusting only the encryption and timing-side-channel-avoidance boxes, and implementing the compare-and-set logic immediately before the net box.
+%{%
+%\def\untrusted#1{\save[].[#1]*[F]\frm{}\restore}
+%\def\trusted#1{\save[].[#1]*[F=]\frm{}\restore}
+%\truecenter{
+%\[
+%\mbox{\xymatrix@-1pc{
+%&\untrusted{ddddddrrrr} \\
+%&&\untrusted{ddddd}\txt{\phantom{UI}}&&\txt{\phantom{Encrypt}}&\txt{\phantom{Timing}}&\untrusted{ddddd}\txt{\phantom{Server Emulator}}&&\untrusted{ddddd}\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rrr]^{\txt{get}}&&&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&&\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&&\txt{\phantom{Net}}&& \\
+%&&\txt{UI}&&\trusted{}\ar[u]\ar[d]\txt{Secret Key}&\txt{\phantom{Timing}}&\txt{Server Emulator}&&\txt{Net}&& \\
+%&&\txt{\phantom{UI}}\ar@{<-}[rr]^{\txt{gotten}}&&\untrusted{}\txt{Decrypt}\ar@{<-}[rr]&\txt{\phantom{Timing}}&\txt{\phantom{Server Emulator}}\ar@{<-}[rr]^{\txt{gotten}}&&\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&\txt{\phantom{Net}}&& \\
+%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[r]&\txt{\phantom{Server Emulator}}&\txt{\phantom{Net}}&& \\
+%%&&\txt{\phantom{UI}}\ar[rr]^{\txt{update}}&&\ar[r]&\trusted{}\txt{Encrypt}\ar[r]&\trusted{}\txt{Timing}\ar[rr]&&\txt{\phantom{Net}}\ar@{=>}[rr]&&\txt{Compare and Set} \\
+%%\ar@{=>}[rr]{\txt{User In}}&&\txt{UI}\ar[rr]^{\txt{get}}&&\ar[rr]&\txt{\phantom{Decrypt}}&\trusted{}\txt{Timing}\ar[rr]&&\txt{Net}\ar@{=>}[rr]&&\txt{Get} \\
+%%&&\txt{\phantom{UI}}\ar@{<-}[rr]^{\txt{gotten}}&&\ar@{<-}[r]&\trusted{}\txt{Decrypt}\ar@{<-}[rrr]&\txt{\phantom{Timing}}&&\txt{\phantom{Net}}\ar@{<=}[rr]&&\txt{Server Response} \\
+%%&&\txt{\phantom{UI}}&&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&&\txt{\phantom{Net}}&& \\
+%%&&\txt{\phantom{UI}}&&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&&\txt{\phantom{Net}}&& \\
+%}}
+%\]
+%}}
+Yet another example implementation would have the trusted mutable cell accept decrypted text, and encrypt it in a timing-oblivious way, but present the UI with encrypted text and let it handle decryption.
+
+%\subsection{Wiring Diagram}
+%Here is a slightly simplified version of the wiring diagram we implement (configuration knobs not included):
+%
+%
+%{%
+%\def\untrusted#1{\save[].[#1]*[F]\frm{}\restore}
+%\def\trusted#1{\save[].[#1]*[F=]\frm{}\restore}
+%\truecenter{
+%\[
+%\mbox{\xymatrix@+1pc{
+%&&&\ar[dd]{\txt{system tick}}\\
+%\untrusted{ddddddrrrrrrr} \\
+%&\untrusted{dddd}\txt{\phantom{UI}}&\untrusted{dddd}\txt{\phantom{PW Store}}&\trusted{ddddrr}\txt{\rlap{Server Emulator}}&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&\untrusted{dddd}\txt{\phantom{Net}}&& \\
+%&\txt{\phantom{UI}}\ar[r]^{\txt{set}}&\txt{\phantom{PW Store}}\ar[r]^{\txt{update}}&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&\txt{\phantom{Net}}&& \\
+%&\txt{UI}\ar[r]^{\txt{get}}&\txt{PW Store}\ar[r]^{\txt{get}}&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&\txt{Net}&& \\
+%&\txt{\phantom{UI}}\ar@{<-}[r]^{\txt{gotten}}&\txt{\phantom{PW Store}}\ar@{<-}[r]^{\txt{gotten}}&&\trusted{}\txt{Decrypt}&\txt{\phantom{Timing}}&\txt{\phantom{Net}}&& \\
+%&\txt{\phantom{UI}}&\txt{\phantom{PW Store}}&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&\txt{\phantom{Net}}&& \\
+%&\txt{\phantom{UI}}&\txt{\phantom{PW Store}}&&\txt{\phantom{Decrypt}}&\txt{\phantom{Timing}}&\txt{\phantom{Net}}&& \\
+%}}
+%\]
+%}}
+
+\subsection{Timing Attacks}\label{sec:timing-details}
+An interesting side-effect of having all communication protocols be message-passing-based, and therefore asynchronous, is that it makes it rather simple to include defenses against timing side-channels in a modular way.  Because every interface is asynchronous, it is a rather simple matter to tie external communication to a system clock rather than to the time that, say, encryption finishes.  We implement a simple (trusted) Tick Box that does this; it handles notifications that the value has changed, and later requests the updated value (computing it is assumed to be a potentially expensive operation), and then later passes the updated value on, on it's own system-clock-based schedule.
+
+Although our framework only allows asynchronous communication, we currently only support single-threaded applications.  Therefore, a malicious UI Box could collude with a malicious Net Box to starve the Tick Box of computation cycles at the just the right time, leaking unencrypted information from the UI Box to the Net Box (and then out to the web).  We currently don't defend against this attack, although we do ensure, given sufficient granularity of the system timer, that we can notice such things happening; our Tick Box will raise a warning when it does not get ticks frequently enough.
+
+\section{Delivered Implementation}
+\subsection{The Code}
+We deliver a proof-of-concept password manager written mostly within Coq, with OCaml shims for communicating with the outside world.  \todo{Include instructions for running}
+
+\todo{Make sure these file lists are correct with the code we hand in.}
+The trusted code base, in addition to the OCaml runtime and Coq kernel, consists of the following files:
+\begin{itemize}
+  \item \texttt{FunctionApp.v} --- The framework definitions
+  \item \texttt{AES.v}, \texttt{AESGCM.v}, \texttt{GCM.v}, and their dependencies --- The encryption and decryption algorithms
+  \item \texttt{TrustedEncryptBox.v}, \texttt{TrustedDecryptBox.v}, \texttt{EncryptionInterface.v} --- The encryption and decryption boxes, parameterized over an encryption algorithm
+  \item \texttt{TrustedTickBox.v} --- Code for avoiding timing side-channels
+  \item \texttt{TrustedServerSyncBox.v} --- Wiring diagram for the combination of the encryption, decryption, and tick boxes
+  \item Some of \texttt{ExamplePwMgr.v} --- top-level wiring diagram
+  \item \todo{trusted OCaml shims}
+\end{itemize}
+
+
+The untrusted code includes
+\begin{itemize}
+  \item \texttt{PrefixSerializable.v}, \texttt{PrefixSerializableDefinitions.v} --- Code for serializing and deserializing various Coq data types
+  \item \texttt{SerializableMergableFMapInterface.v}, \texttt{SerializableMergableFMapImplementation.v} --- Code implementing a verified correct map of keys to values which is serializable, deserializable, and mergable.
+  \item Some of \texttt{ExamplePwMgr.v} --- UI code, https code
+\end{itemize}
+
+\todo{Should we talk about encryption, tick boxes, challenges of coding things in Coq, various design decisions?  Other things?}
+\end{document}
