@@ -1,17 +1,10 @@
 -R . Apps
 Common.v
-Process.v
-Refinement.v
-ModelCheck.v
-Examples.v
 EncryptionInterface.v
 TrustedEncryptBox.v
 TrustedDecryptBox.v
-SecurityExamples.v
 PrefixSerializableDefinitions.v
 PrefixSerializable.v
-PiCalculus.v
-PiCalculus2.v
 FunctionApp.v
 FunctionAppLemmas.v
 FunctionAppTactics.v
@@ -20,9 +13,6 @@ TrustedTickBox.v
 TrustedServerSyncBox.v
 SerializableMergableFMapInterface.v
 SerializableMergableFMapImplementation.v
-ExampleMBTARequester.v
-ExamplePwMgr.v
-ExamplePwMgr2.v
 FPUtil.v
 Bitvec.v
 AES.v
@@ -33,3 +23,6 @@ Labels.v
 Nomega.v
 LabelMap.v
 StringKey.v
+ExamplePwMgr.v
+ExamplePwMgr2.v
+PwMgrUI.v

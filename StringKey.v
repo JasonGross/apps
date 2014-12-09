@@ -1,7 +1,6 @@
 (* Finite maps for labels *)
 
 Require Import LabelMap.
-
 Require Import Ascii NArith String OrderedType FSetAVL.
 
 Module StringKey.
@@ -43,7 +42,7 @@ Module StringKey.
         else if string_dec x y
           then Datatypes.Eq
           else Gt.
-    
+
     Definition compare (x y : t) : Structures.OrderedType.Compare lt eq x y.
       refine (match compare' x y as c return c = compare' x y -> Structures.OrderedType.Compare lt eq x y with
                 | Datatypes.Lt => fun _ => Structures.OrderedType.LT _
