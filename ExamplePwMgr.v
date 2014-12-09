@@ -222,7 +222,7 @@ Section pwMgr.
       (Step (pwMgrLoopBody pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net))).
   Proof.
     intro; constructor.
-    let tac := (idtac; unfold storageSet;
+    let tac := (idtac; 
                 match goal with
                   | [ |- appcontext[match split ?a ?b with _ => _ end] ] => destruct (split a b)
                   | [ |- appcontext[match string_dec ?s0 ?s1 with _ => _ end] ] => destruct (string_dec s0 s1)
@@ -231,12 +231,12 @@ Section pwMgr.
                   | [ |- appcontext[match ?x with (_, _) => _ end] ] => rewrite (@surjective_pairing _ _ x)
                   | [ |- appcontext[match ?a with (netReceived _) => _ | _ => _ end] ] => destruct a
                   | [ |- appcontext[match ?a with None => _ | _ => _ end] ] => destruct a
+                  | _ => progress unfold storageSet in *
                 end) in
     emptiesStackForever_t pwMgrGood' input (@pwMgrLoop_eta) (@pwMgrLoop) tac.
 
     - subst; discriminate.
     - subst.
-      unfold storageSet; simpl.
       constructor.
       constructor.
       Grab Existential Variables.
