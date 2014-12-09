@@ -158,8 +158,6 @@ Section pwMgr.
   Context (world : Type).
   Context (sys : systemActions input world).
 
-  Definition consoleIn := pwMgrConsoleIn.
-
   Inductive pwMgrMessage :=
   | pwMgrEncrypt : string -> pwMgrMessage
   | pwMgrDecrypt : string -> pwMgrMessage.
@@ -174,7 +172,8 @@ Section pwMgr.
           (* TODO: crypto *)
           let (a, ui') := getStep ui (uiDecrypted s) in (a, pwMgrLoop ui' net)
         | inr (pwMgrConsoleIn s) =>
-          let (a, ui') := getStep ui (uiConsoleIn s) in (a, pwMgrLoop ui' net)
+          let (a, ui') := getStep ui (uiConsoleIn s) in
+          (fun w => a (stackLift (consoleIn sys pwMgrConsoleIn) w), pwMgrLoop ui' net)
         | inr (pwMgrNetInput i') =>
           let (a, net') := getStep net i' in (a, pwMgrLoop ui net')
       end.
@@ -250,10 +249,10 @@ Section pwMgr.
     admit.
   Qed.
 
-  Definition proc := (@id world, runStackProcess pwMgrStack (pwMgrGood nil)).
+  Definition proc := (consoleIn sys pwMgrConsoleIn, runStackProcess pwMgrStack (pwMgrGood nil)).
 
 End pwMgr.
 
 
 Require Import ExtrOcamlBasic ExtrOcamlString.
-Extraction "ExamplePwMgr" proc consoleIn.
+Extraction "ExamplePwMgr" proc.

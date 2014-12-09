@@ -19,6 +19,7 @@ Section systemActions.
   Context {world : Type}.
   Record systemActions :=
     {
+      consoleIn : (string -> input) -> action world;
       consoleOut : string -> action world;
       getNanosecs : (N -> input) -> action world;
       getRandomness : N -> (string -> input) -> action world;

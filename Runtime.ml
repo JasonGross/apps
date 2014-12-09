@@ -17,6 +17,7 @@ module type APPLICATION =
       }
 
     type ('input, 'world) systemActions = {
+        consoleIn : (char list -> 'input) -> 'world action;
         consoleOut : char list -> 'world action;
         getNanosecs : (Big.big_int -> 'input) -> 'world action;
         getRandomness : Big.big_int -> (char list -> 'input) -> 'world action;
@@ -31,8 +32,6 @@ module type APPLICATION =
     type input
 
     val proc : (input, 'world) systemActions -> 'world action * (input, 'world) process
-
-    val consoleIn : char list -> input
 
   end;;
 
@@ -80,6 +79,17 @@ module Main(P : APPLICATION) : MAIN = struct
     | P.Step f -> f
 
   let sys : (P.input, 'a) P.systemActions = {
+
+    P.consoleIn = begin fun cb next send ->
+      let e = Uq_io.input_line_e (`Buffer_in stdin_buf) in
+      Uq_engines.when_state
+        ~is_done:(fun s ->
+          send (cb (ExtString.String.explode s)))
+        ~is_error:(fun ex ->
+          prerr_endline ("stdin: " ^ Printexc.to_string ex))
+        e;
+      next send
+    end;
 
     P.consoleOut = begin fun s next send ->
       print_endline (ExtString.String.implode s);
@@ -135,17 +145,6 @@ module Main(P : APPLICATION) : MAIN = struct
 
   }
 
-  let rec readStdin send =
-    let e = Uq_io.input_line_e (`Buffer_in stdin_buf) in
-    Uq_engines.when_state
-      ~is_done:(fun s ->
-        send (P.consoleIn (ExtString.String.explode s));
-        readStdin send)
-      ~is_error:(fun ex ->
-        prerr_endline ("stdin: " ^ Printexc.to_string ex))
-      e;
-    ()
-
   let main () =
     let step = ref (fun i -> raise (Failure "uninitialized")) in
     let rec send i = doStep (!step i)
@@ -153,6 +152,5 @@ module Main(P : APPLICATION) : MAIN = struct
       step := getStep proc';
       out (fun send -> ()) send in
     doStep (P.proc sys);
-    readStdin send;
     Unixqueue.run esys
 end;;
