@@ -2,60 +2,9 @@ Require Import Coq.Strings.Ascii Coq.Lists.List Coq.Program.Basics Coq.Program.P
 Require Import Coq.NArith.BinNat.
 Require Import SerializableMergableFMapInterface StringKey PrefixSerializable.
 Require Import System FunctionApp FunctionAppLemmas FunctionAppTactics.
-Require Import PwMgrUI PwMgrWarningBox TrustedServerSyncBox EncryptionInterface.
+Require Import PwMgrUI PwMgrWarningBox PwMgrNet TrustedServerSyncBox EncryptionInterface.
 Import ListNotations.
 Open Scope string_scope.
-
-
-Section net.
-
-  Inductive netInput :=
-| netReceived : option string -> netInput
-| netHttpError : httpResponse -> netInput
-| netEncrypted : string -> netInput.
-
-  Context (world : Type).
-  Context (httpPOST : string -> list (string * string) -> (httpResponse -> netInput) -> action world).
-  Context (decrypt : string -> action world).
-
-  Definition storageURI := "https://andersk.scripts.mit.edu/pwmgr/storage".
-  Definition storageId := "foo".
-
-  Definition storageGet id cb :=
-    httpPOST
-      (storageURI ++ "/get") [("id", id)]
-      (fun r => match httpResponseStatus r with
-                  | httpOk => cb (httpResponseBody r)
-                  | _ => netHttpError r
-                end).
-  Definition storageSet id old new cb :=
-    httpPOST
-      (storageURI ++ "/set") [("id", id); ("old", old); ("new", new)]
-      (fun r => match httpResponseStatus r with
-                  | httpOk => cb None  (* compare-and-set succeeded *)
-                  | httpPreconditionFailed => cb (Some (httpResponseBody r))  (* remote value differed *)
-                  | _ => netHttpError r
-                end).
-  Definition storagePoll id old cb :=
-    httpPOST
-      (storageURI ++ "/poll") [("id", id); ("old", old)]
-      (fun r => match httpResponseStatus r with
-                  | httpOk => cb (httpResponseBody r)
-                  | _ => netHttpError r
-                end).
-
-  CoFixpoint net :=
-    Step (fun i =>
-            match i with
-              | netReceived (Some s) => (decrypt s, net)
-              | netReceived None => (id, net)
-              | netHttpError _ => (id, net)
-              | netEncrypted s =>
-                (storageSet storageId "" s netReceived,
-                 net)
-            end).
-
-End net.
 
 Definition getStep {input output} (p : process input output) :=
   match p with
@@ -152,11 +101,12 @@ Module MakePwMgr
     Context (sys : systemActions pwInput world).
 
     Inductive pwMgrMessage :=
-    | pwUI (msg : UI.uiOutput)
-    | pwW (msg : WB.wOutput)
-    | pwSSB (msg : SSB.ssbOutput)
+    | pwUI (msg : UI.uiInput)
+    | pwW (msg : WB.wInput)
+    | pwSSB (msg : SSB.ssbInput)
+    | pwNET (msg : netInput)
     | pwBadState.
-Axiom admit : forall {T}, T.
+
     Definition pwMgrLoopBody pwMgrLoop ssb wb ui net
     : @stackInput pwMgrMessage pwInput -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage pwInput world :=
       fun i =>
@@ -171,47 +121,16 @@ Axiom admit : forall {T}, T.
             let (a, ssb') := getStep ssb (inr (SSB.ssbSystemRandomness randomness key) : SSB.ssbInput) in
             (a, pwMgrLoop ssb' wb ui net)
 
-          (* loop on bad states, spewing warnings (TODO: to stderr); I
-             don't know which order messages are used in, so emit both
-             before and after the [stackPush] *)
+          (* loop on bad states, spewing warnings (TODO: to stderr) *)
           | inl pwBadState
             => ((stackLift (sys.(consoleOut) "BAD LOOP"))
-                  ∘ (stackPush pwBadState)
-                  ∘ (stackLift (sys.(consoleOut) "BAD LOOP")),
+                  ∘ (stackPush pwBadState),
                 pwMgrLoop ssb wb ui net)
 
-          | inl (pwUI UI.uiGetUpdate)
-            => let (a, ssb') := getStep ssb (inr SSB.ssbClientGetUpdate : SSB.ssbInput) in
-               (a, pwMgrLoop ssb' wb ui net)
-          | inl (pwUI (UI.uiSetData data))
-            => let (a, ssb') := getStep ssb (inr (SSB.ssbClientSet data) : SSB.ssbInput) in
-               (a, pwMgrLoop ssb' wb ui net)
-          | inl (pwUI (UI.uiConsoleOut data))
-            => (stackLift (sys.(consoleOut) data), pwMgrLoop ssb wb ui net)
-
-          | inl (pwW (WB.wConsoleErr lines))
-            (* TODO: to stderr *)
-            => (stackLift (sys.(consoleOut) lines), pwMgrLoop ssb wb ui net)
-
-          | inl (pwW (WB.wBad msg))            (* TODO: to stderr *)
-            => ((stackLift (sys.(consoleOut) msg))
-                  ∘ (stackPush pwBadState)
-                  ∘ (stackLift (sys.(consoleOut) msg)),
-                pwMgrLoop ssb wb ui net)
-
-          | inl (pwSSB (inl warning))
-            => let (a, wb') := getStep wb (warning : WB.wInput) in
-               (a, pwMgrLoop ssb wb' ui net)
-          | inl (pwSSB (inr (SSB.ssbClientGotUpdate data)))
-            => let (a, ui') := getStep ui (UI.uiGotUpdate data) in
-               (a, pwMgrLoop ssb wb ui' net)
-          | inl (pwSSB (inr (SSB.ssbRequestSystemRandomness howMuch tag)))
-            => (stackLift (sys.(getRandomness) (N.of_nat howMuch) (pwMgrGotRandomness tag)),
-                pwMgrLoop ssb wb ui net)
-
-
-          | inl (pwSSB (inr SSB.ssbServerGetUpdate)) => admit
-          | inl (pwSSB (inr (SSB.ssbServerCAS cur new))) => admit
+          | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
+          | inl (pwUI ev)  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
+          | inl (pwW ev)   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
+          | inl (pwSSB ev) => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net)
         end.
 
     CoFixpoint pwMgrLoop ssb wb ui net : stackProcess pwMgrMessage pwInput world :=
@@ -224,16 +143,15 @@ Axiom admit : forall {T}, T.
            (UI.uiOutput -> action world') ->
            process UI.uiInput world') :=
       ui
-        (stackPush (world := world) ∘ pwUI).
-
-    Definition
-      wrap_ssb
-      (ssb :
-         forall {world'},
-           (SSB.ssbOutput -> action world') ->
-           process SSB.ssbInput world') :=
-      ssb
-        (stackPush (world := world) ∘ pwSSB).
+        (fun i =>
+           match i with
+             | UI.uiGetUpdate
+               => stackPush (pwSSB (inr SSB.ssbClientGetUpdate : SSB.ssbInput))
+             | UI.uiSetData data
+               => stackPush (pwSSB (inr (SSB.ssbClientSet data) : SSB.ssbInput))
+             | UI.uiConsoleOut data
+               => stackLift (sys.(consoleOut) data)
+           end).
 
     Definition
       wrap_wb
@@ -242,29 +160,67 @@ Axiom admit : forall {T}, T.
            (WB.wOutput -> action world') ->
            process WB.wInput world') :=
       wb
-        (stackPush (world := world) ∘ pwW).
+        (fun i =>
+           match i with
+             | WB.wConsoleErr lines
+               (* TODO: to stderr *)
+               => stackLift (sys.(consoleOut) lines)
+             | WB.wBad msg
+               (* TODO: to stderr *)
+               => (stackLift (sys.(consoleOut) msg))
+                    ∘ (stackPush pwBadState)
+           end).
+
+    Definition
+      wrap_ssb
+      (ssb :
+         forall {world'},
+           (SSB.ssbOutput -> action world') ->
+           process SSB.ssbInput world') :=
+      ssb
+        (fun i =>
+           match i with
+             | inl warning
+               => stackPush (pwW (warning : WB.wInput))
+             | inr (SSB.ssbClientGotUpdate data)
+               => stackPush (pwUI (UI.uiGotUpdate data))
+             | inr (SSB.ssbRequestSystemRandomness howMuch tag)
+               => stackLift (sys.(getRandomness) (N.of_nat howMuch) (pwMgrGotRandomness tag))
+             | inr SSB.ssbServerGetUpdate
+               => stackPush (pwNET netGetUpdate)
+             | inr (SSB.ssbServerCAS cur new)
+               => stackPush (pwNET (netCAS cur new))
+           end).
 
     Definition
       wrap_net
       (net :
          forall {world'},
-           (string -> list (string * string) -> (httpResponse -> netInput) -> action world') ->
-           (string -> action world') ->
+           (netOutput -> action world') ->
            process netInput world') :=
-      net
-        (fun uri data cb => stackLift (httpPOST sys uri data (fun r => pwMgrNetInput (cb r))))
-        (fun s => stackPush (pwMgrDecrypt s)).
+      net (fun i =>
+             match i with
+               | netGotUpdate new
+                 => stackPush (pwSSB (inr (SSB.ssbServerGotUpdate new)))
+               | netHttpPOST uri data cb
+                 => stackLift (httpPOST sys uri data (fun r => pwMgrNetInput (cb r)))
+             end).
 
     Definition
-      mkPwMgrStack ui net :
-      stackProcess pwMgrMessage input world :=
-      pwMgrLoop (wrap_ui ui) (wrap_net net).
+      mkPwMgrStack ssb wb ui net :
+      stackProcess pwMgrMessage pwInput world :=
+      pwMgrLoop (wrap_ssb ssb) (wrap_wb wb) (wrap_ui ui) (wrap_net net).
 
-    Definition pwMgrStack := mkPwMgrStack ui net.
+    Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string)
+      := mkPwMgrStack
+           (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
+           WB.warningBox
+           UI.ui
+           (fun world handle => net world handle storageId).
 
 
-    Lemma pwMgrLoop_eta ui net
-    : pwMgrLoop ui net = Step (pwMgrLoopBody pwMgrLoop ui net).
+    Lemma pwMgrLoop_eta ssb wb ui net
+    : pwMgrLoop ssb wb ui net = Step (pwMgrLoopBody pwMgrLoop ssb wb ui net).
     Proof.
       rewrite stackProcess_eta at 1; reflexivity.
     Qed.
@@ -287,11 +243,13 @@ Axiom admit : forall {T}, T.
   Qed.
      *)
 
-    Theorem pwMgrGood pws :
+    Theorem pwMgrGood initStore storageId :
       emptiesStackForever
         (mkPwMgrStack
-           (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)
-           net).
+           (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
+           WB.warningBox
+           UI.ui
+           (fun world handle => net world handle storageId)).
     Proof.
       unfold mkPwMgrStack.
       rewrite pwMgrLoop_eta.
@@ -301,10 +259,13 @@ Axiom admit : forall {T}, T.
       admit.
     Qed.
 
-    Definition proc := (consoleIn sys pwMgrConsoleIn, runStackProcess pwMgrStack (pwMgrGood nil)).
+
+    Definition initStore := "".
+    (** We should do something sane here, not use "foo" unconditionally. *)
+    Definition storageId := "foo".
+
+    Definition proc
+      := (consoleIn sys pwMgrConsoleIn, runStackProcess (pwMgrStack initStore storageId) (pwMgrGood initStore storageId)).
 
   End pwMgr.
-
-
-  Require Import ExtrOcamlBasic ExtrOcamlString.
-Extraction "ExamplePwMgr" proc.
+End MakePwMgr.

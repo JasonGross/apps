@@ -27,4 +27,6 @@ PwMgrUI.v
 PwMgrWarningBox.v
 PwMgrNet.v
 ExamplePwMgr.v
+ExamplePwMgrWithSSB.v
+ExamplePwMgrWithSSBFull.v
 ExamplePwMgr2.v
