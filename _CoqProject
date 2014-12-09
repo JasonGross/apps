@@ -29,3 +29,7 @@ AES.v
 GCM.v
 GCMTest.v
 AESGCM.v
+Labels.v
+Nomega.v
+LabelMap.v
+StringKey.v
