@@ -95,7 +95,8 @@ Module MakePwMgr
     Inductive pwInput :=
     | pwMgrConsoleIn (line : string)
     | pwMgrNetInput (response : netInput)
-    | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string).
+    | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string)
+    | pwTick.
 
     Context (world : Type).
     Context (sys : systemActions pwInput world).
@@ -106,6 +107,8 @@ Module MakePwMgr
     | pwSSB (msg : SSB.ssbInput)
     | pwNET (msg : netInput)
     | pwBadState.
+
+    Definition one_second := 1000000000%N.
 
     Definition pwMgrLoopBody pwMgrLoop ssb wb ui net
     : @stackInput pwMgrMessage pwInput -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage pwInput world :=
@@ -120,6 +123,10 @@ Module MakePwMgr
           | inr (pwMgrGotRandomness key randomness) =>
             let (a, ssb') := getStep ssb (inr (SSB.ssbSystemRandomness randomness key) : SSB.ssbInput) in
             (a, pwMgrLoop ssb' wb ui net)
+          | inr pwTick =>
+            (** TODO: Fix ticks *)
+            let (a, ssb') := getStep ssb (inr (SSB.ssbTick 1) : SSB.ssbInput) in
+            (stackLift (sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
 
           (* loop on bad states, spewing warnings (TODO: to stderr) *)
           | inl pwBadState
