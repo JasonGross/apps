@@ -1,5 +1,6 @@
 (** * A box to prevent timing side channels (part of TCB) *)
-Require Import Coq.Program.Basics Coq.Numbers.Natural.Peano.NPeano Coq.Lists.List.
+Require Import Coq.Program.Basics Coq.NArith.NArith Coq.Lists.List.
+
 Require Import FunctionApp.
 
 Set Implicit Arguments.
@@ -146,52 +147,54 @@ to 0                      ^             |                                   │
                                                     Fire: Warning
 >> *)
 
-Inductive PublishDurationT := durationOf (n : nat) | inf.
+Inductive PublishDurationT := durationOf (n : N) | inf.
 Bind Scope duration_scope with PublishDurationT.
 Delimit Scope duration_scope with duration.
 Notation "∞" := inf : duration_scope.
-Coercion durationOf : nat >-> PublishDurationT.
+Coercion durationOf : N >-> PublishDurationT.
 Local Open Scope duration_scope.
 Local Open Scope bool_scope.
+Local Open Scope N_scope.
 
-Definition duration_leb (x : nat) (y : PublishDurationT) : bool :=
+Definition duration_leb (x : N) (y : PublishDurationT) : bool :=
   match y with
     | durationOf y' => x <=? y'
     | inf => true
   end.
 
 Infix "<=?" := duration_leb : duration_scope.
+Local Open Scope duration_scope.
 
-Notation "x >? y" := (y <? x) (at level 70, right associativity) : nat_scope.
-Notation "x >=? y" := (y <=? x) (at level 70, right associativity) : nat_scope.
+Notation "x >? y" := (y <? x) (at level 70, right associativity) : N_scope.
+Notation "x >=? y" := (y <=? x) (at level 70, right associativity) : N_scope.
 
 Section trustedTickBox.
   Variable dataT : Type.
 
   Inductive TickBoxPreState :=
-  | NoData (ticks : nat)
-  | InitiallyWaitingOnData (ticks : nat)
-  | HaveData (ticks : nat) (data : dataT) (publishesSinceLastChange : option nat)
-  | WaitingOnData (ticks : nat) (publishesSinceLastChange : option nat)
-  | WaitingOnTicks (ticks : nat) (publishesSinceLastChange : option nat).
+  | NoData (ticks : N)
+  | InitiallyWaitingOnData (ticks : N)
+  | HaveData (ticks : N) (data : dataT) (publishesSinceLastChange : option N)
+  | WaitingOnData (ticks : N) (publishesSinceLastChange : option N)
+  | WaitingOnTicks (ticks : N) (publishesSinceLastChange : option N).
 
   Record TickBoxState :=
     {
       curData :> TickBoxPreState;
-      publishInterval : nat;
+      publishInterval : N;
       publishDuration : PublishDurationT;
-      waitBeforeUpdateInterval : nat;
-      publishPrecision : nat
+      waitBeforeUpdateInterval : N;
+      publishPrecision : N
     }.
 
 (* python:
 <<
 fields=[(x.strip(), y.strip()) for x, y in [z.split(':') for z in """
       curData : TickBoxPreState;
-      publishInterval : nat;
+      publishInterval : N;
       publishDuration : PublishDurationT;
-      waitBeforeUpdateInterval : nat;
-      publishPrecision : nat""".split(';')]]
+      waitBeforeUpdateInterval : N;
+      publishPrecision : N""".split(';')]]
 for field0, ty0 in fields:
     body = ';\n          '.join((('%s := st.(%s)' % (field, field)) if field != field0 else ('%s := v' % field))
                                 for field, ty in fields)
@@ -206,7 +209,7 @@ for field0, ty0 in fields:
           waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
           publishPrecision := st.(publishPrecision) |}.
 
-  Definition set_publishInterval (st : TickBoxState) (v : nat)
+  Definition set_publishInterval (st : TickBoxState) (v : N)
     := {| curData := st.(curData);
           publishInterval := v;
           publishDuration := st.(publishDuration);
@@ -220,14 +223,14 @@ for field0, ty0 in fields:
           waitBeforeUpdateInterval := st.(waitBeforeUpdateInterval);
           publishPrecision := st.(publishPrecision) |}.
 
-  Definition set_waitBeforeUpdateInterval (st : TickBoxState) (v : nat)
+  Definition set_waitBeforeUpdateInterval (st : TickBoxState) (v : N)
     := {| curData := st.(curData);
           publishInterval := st.(publishInterval);
           publishDuration := st.(publishDuration);
           waitBeforeUpdateInterval := v;
           publishPrecision := st.(publishPrecision) |}.
 
-  Definition set_publishPrecision (st : TickBoxState) (v : nat)
+  Definition set_publishPrecision (st : TickBoxState) (v : N)
     := {| curData := st.(curData);
           publishInterval := st.(publishInterval);
           publishDuration := st.(publishDuration);
@@ -235,20 +238,20 @@ for field0, ty0 in fields:
           publishPrecision := v |}.
 
   Inductive tbConfigInput :=
-  | tbSetPublishInterval (_ : nat)
+  | tbSetPublishInterval (_ : N)
   | tbSetPublishDuration (_ : PublishDurationT)
-  | tbSetWaitBeforeUpdateInterval (_ : nat)
-  | tbSetPublishPrecision (_ : nat).
+  | tbSetWaitBeforeUpdateInterval (_ : N)
+  | tbSetPublishPrecision (_ : N).
 
   Inductive tbEventInput :=
   | tbNotifyChange
-  | tbTick (addedTickCount : nat)
+  | tbTick (addedTickCount : N)
   | tbValueReady (val : dataT).
 
   Inductive tbWarningOutput :=
   | tbWarnNoDataReady
   | tbWarnTicksTooInfrequent
-  | tbWarnInvalidWaitBeforeUpdateInterval (_ : nat)
+  | tbWarnInvalidWaitBeforeUpdateInterval (_ : N)
   | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbEventInput).
 
   Inductive tbEventOutput :=
@@ -268,32 +271,32 @@ for field0, ty0 in fields:
        waitBeforeUpdateInterval := 0;
        publishPrecision := 0 |}.
 
-  Definition readyToTransmit (ticks : nat) (st : TickBoxState) : bool :=
+  Definition readyToTransmit (ticks : N) (st : TickBoxState) : bool :=
     ticks >? st.(publishInterval).
 
-  Definition readyToGetUpdate (ticks : nat) (st : TickBoxState) : bool :=
+  Definition readyToGetUpdate (ticks : N) (st : TickBoxState) : bool :=
     ticks >? st.(waitBeforeUpdateInterval).
 
-  Definition invalidWaitBeforeUpdateInterval (val : nat) (st : TickBoxState) : bool :=
+  Definition invalidWaitBeforeUpdateInterval (val : N) (st : TickBoxState) : bool :=
     val >? st.(publishInterval).
 
   (** Should we emit a warning about [tbTick] not being called often
       enough? *)
-  Definition ticksTooCoarse (ticks : nat) (st : TickBoxState) : bool :=
+  Definition ticksTooCoarse (ticks : N) (st : TickBoxState) : bool :=
     ticks - st.(publishInterval) >? st.(publishPrecision) + 1.
 
   (** Should we emit a warning about [tbTick] not being called often
       enough, when we're waiting to request an update? *)
-  Definition ticksTooCoarseWaitingOnTicks (ticks : nat) (st : TickBoxState) : bool :=
+  Definition ticksTooCoarseWaitingOnTicks (ticks : N) (st : TickBoxState) : bool :=
     ticks - st.(waitBeforeUpdateInterval) >? st.(publishPrecision) + 1.
 
   (** Have we transmitted enough times since the last change to sleep? *)
-  Definition enoughTransmissions (publishesSinceLastChange : nat) (st : TickBoxState) : bool :=
+  Definition enoughTransmissions (publishesSinceLastChange : N) (st : TickBoxState) : bool :=
     negb (publishesSinceLastChange <=? st.(publishDuration)).
 
-  Definition ticksMod (ticks : nat) (st : TickBoxState)
-  : nat
-    := modulo ticks st.(publishInterval).
+  Definition ticksMod (ticks : N) (st : TickBoxState)
+  : N
+    := N.modulo ticks st.(publishInterval).
 
   Definition tickBoxLoopPreBody
              (st : TickBoxState)

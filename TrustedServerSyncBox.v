@@ -1,5 +1,5 @@
 (** * A box to mirror a server over untrusted channels using encryption while preventing timing side channels (part of TCB) *)
-Require Import Coq.Program.Basics Coq.Numbers.Natural.Peano.NPeano Coq.Lists.List.
+Require Import Coq.Program.Basics Coq.NArith.NArith Coq.Lists.List.
 Require Import FunctionApp EncryptionInterface TrustedTickBox TrustedEncryptBox TrustedDecryptBox.
 Require Import Common.
 
@@ -134,7 +134,7 @@ for field0, ty0 in fields:
     | ssbSetMasterKey (key : masterKeyT).
 
     Inductive ssbEventInput :=
-    | ssbTick (addedTickCount : nat)
+    | ssbTick (addedTickCount : N)
     | ssbClientGetUpdate
     | ssbClientSet (newD : rawDataT)
     | ssbServerGotUpdate (newE : encryptedDataT)
