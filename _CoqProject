@@ -23,6 +23,7 @@ Labels.v
 Nomega.v
 LabelMap.v
 StringKey.v
+PwMgrUI.v
+PwMgrWarningBox.v
 ExamplePwMgr.v
 ExamplePwMgr2.v
-PwMgrUI.v
