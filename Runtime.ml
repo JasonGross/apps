@@ -18,7 +18,9 @@ module type APPLICATION =
 
     type ('input, 'world) systemActions = {
         consoleOut : (char list -> 'world action);
-        httpPOST : (char list -> (char list * char list) list -> (httpResponse -> 'input) -> 'world action)
+        getNanosecs : (Big.big_int -> 'input) -> 'world action;
+        httpPOST : (char list -> (char list * char list) list -> (httpResponse -> 'input) -> 'world action);
+        sleepNanosecs : Big.big_int -> 'input -> 'world action;
       }
 
     type ('input, 'world) process = ('input, 'world) __process Lazy.t
@@ -59,6 +61,14 @@ pipeline # set_options { pipeline # get_options with
 
 pipeline # set_event_system esys;;
 
+let getNanosecs () : Big_int.big_int =
+  let (t, n) = Netsys_posix.clock_gettime Netsys_posix.CLOCK_MONOTONIC in
+  Big_int.add_big_int
+    (Big_int.mult_big_int
+       (Big_int.big_int_of_int64 (Int64.of_float t))
+       (Big_int.big_int_of_int 1000000000))
+    (Big_int.big_int_of_int n);;
+
 module Main(P : APPLICATION) : MAIN = struct
   let getStep proc =
     match Lazy.force proc with
@@ -68,6 +78,10 @@ module Main(P : APPLICATION) : MAIN = struct
 
     P.consoleOut = begin fun s () ->
       print_endline (ExtString.String.implode s)
+    end;
+
+    P.getNanosecs = begin fun cb () ->
+      doStep (!step (cb (getNanosecs ())))
     end;
 
     P.httpPOST = begin fun uri data cb () ->
@@ -88,7 +102,15 @@ module Main(P : APPLICATION) : MAIN = struct
             doStep (!step i)
         | `Http_protocol_error ex -> prerr_endline ("HTTP: " ^ Printexc.to_string ex)
         | `Unserved -> prerr_endline "HTTP: unserved request")
-    end
+    end;
+
+    P.sleepNanosecs = begin fun t i () ->
+      Unixqueue.once esys
+        (Unixqueue.new_group esys)
+        (Big_int.float_of_big_int t *. 1e-9)
+        (fun () ->
+          doStep (!step i))
+    end;
 
   }
   and step = ref (fun i -> getStep (P.proc sys) i)

@@ -1,4 +1,4 @@
-Require Import FunctionApp String.
+Require Import BinNums ExtrOcamlZBigInt FunctionApp String.
 
 Inductive httpStatus :=
 | httpOk
@@ -20,7 +20,9 @@ Section systemActions.
   Record systemActions :=
     {
       consoleOut : string -> action world;
-      httpPOST : string -> list (string * string) -> (httpResponse -> input) -> action world
+      getNanosecs : (N -> input) -> action world;
+      httpPOST : string -> list (string * string) -> (httpResponse -> input) -> action world;
+      sleepNanosecs : N -> input -> action world
     }.
 End systemActions.
 
