@@ -25,5 +25,6 @@ LabelMap.v
 StringKey.v
 PwMgrUI.v
 PwMgrWarningBox.v
+PwMgrNet.v
 ExamplePwMgr.v
 ExamplePwMgr2.v
