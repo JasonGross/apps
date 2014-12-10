@@ -15,12 +15,16 @@ Makefile.coq: Makefile _CoqProject
 
 
 all: pwmgr
-ExamplePwMgr.mli ExamplePwMgr.ml ExamplePwMgrRuntime.ml.d: ExamplePwMgr.vo
+
+ExamplePwMgr.cmx ExamplePwMgr.cmo ExamplePwMgrRuntime.cmo ExamplePwMgrRuntime.cmx: ExamplePwMgr.vo
+
 pwmgr: big.cmx Runtime.cmx ExamplePwMgr.cmx ExamplePwMgrRuntime.cmx
 	$(OCAMLFIND) $(CAMLOPTLINK) -linkpkg $(OCAMLPKGS:%=-package %) nums.cmxa $(ZDEBUG) -o $@ $^
 
+
+ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFull.cmo ExamplePwMgrWithSSBFullRuntime.cmo ExamplePwMgrWithSSBFullRuntime.cmx: ExamplePwMgrWithSSBFull.vo
+
 all: pwmgr-ssb
-ExamplePwMgrWithSSBFull.mli ExamplePwMgrWithSSBFull.ml ExamplePwMgrWithSSBFullRuntime.ml.d: ExamplePwMgrWithSSBFull.vo
 pwmgr-ssb: big.cmx Runtime.cmx ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFullRuntime.cmx
 	$(OCAMLFIND) $(CAMLOPTLINK) -linkpkg $(OCAMLPKGS:%=-package %) nums.cmxa $(ZDEBUG) -o $@ $^
 
