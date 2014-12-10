@@ -203,4 +203,4 @@ End pwMgr.
 
 
 Require Import ExtrOcamlBasic ExtrOcamlString.
-Extraction "ExamplePwMgr" pwMgr.
+Extraction "ExamplePwMgr2" pwMgr.

@@ -9,8 +9,18 @@ Makefile.coq.bak
 *.v.d
 .#*
 .dir-locals.el
-*.ml
 *.mli
+*.ml.d
+*.mli.d
+*.cmo
+*.cmi
+*.o
+*.cmx
+*.cmxs
+
+ExamplePwMgr2.ml
+ExamplePwMgr.ml
+ExamplePwMgrWithSSBFull.ml
 
 *.log
 *.out

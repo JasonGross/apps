@@ -92,26 +92,25 @@ Module MakePwMgr
 
   Section pwMgr.
 
-    Inductive pwInput :=
+    Inductive input :=
     | pwMgrConsoleIn (line : string)
     | pwMgrNetInput (response : netInput)
     | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string)
     | pwTick.
 
     Context (world : Type).
-    Context (sys : systemActions pwInput world).
+    Context (sys : systemActions input world).
 
     Inductive pwMgrMessage :=
     | pwUI (msg : UI.uiInput)
     | pwW (msg : WB.wInput)
     | pwSSB (msg : SSB.ssbInput)
-    | pwNET (msg : netInput)
-    | pwBadState.
+    | pwNET (msg : netInput).
 
     Definition one_second := 1000000000%N.
 
     Definition pwMgrLoopBody pwMgrLoop ssb wb ui net
-    : @stackInput pwMgrMessage pwInput -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage pwInput world :=
+    : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
       fun i =>
         match i with
           | inr (pwMgrConsoleIn s) =>
@@ -128,19 +127,13 @@ Module MakePwMgr
             let (a, ssb') := getStep ssb (inr (SSB.ssbTick 1) : SSB.ssbInput) in
             (stackLift (sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
 
-          (* loop on bad states, spewing warnings (TODO: to stderr) *)
-          | inl pwBadState
-            => ((stackLift (sys.(consoleOut) "BAD LOOP"))
-                  ∘ (stackPush pwBadState),
-                pwMgrLoop ssb wb ui net)
-
           | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
           | inl (pwUI ev)  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
           | inl (pwW ev)   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
           | inl (pwSSB ev) => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net)
         end.
 
-    CoFixpoint pwMgrLoop ssb wb ui net : stackProcess pwMgrMessage pwInput world :=
+    CoFixpoint pwMgrLoop ssb wb ui net : stackProcess pwMgrMessage input world :=
       Step (pwMgrLoopBody pwMgrLoop ssb wb ui net).
 
     Definition
@@ -166,16 +159,13 @@ Module MakePwMgr
          forall {world'},
            (WB.wOutput -> action world') ->
            process WB.wInput world') :=
-      wb
+      wb (world' := stackWorld pwMgrMessage world)
         (fun i =>
            match i with
              | WB.wConsoleErr lines
-               (* TODO: to stderr *)
-               => stackLift (sys.(consoleOut) lines)
+               => stackLift (sys.(consoleErr) lines)
              | WB.wBad msg
-               (* TODO: to stderr *)
-               => (stackLift (sys.(consoleOut) msg))
-                    ∘ (stackPush pwBadState)
+               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
            end).
 
     Definition
@@ -215,7 +205,7 @@ Module MakePwMgr
 
     Definition
       mkPwMgrStack ssb wb ui net :
-      stackProcess pwMgrMessage pwInput world :=
+      stackProcess pwMgrMessage input world :=
       pwMgrLoop (wrap_ssb ssb) (wrap_wb wb) (wrap_ui ui) (wrap_net net).
 
     Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string)

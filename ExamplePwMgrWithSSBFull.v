@@ -6,10 +6,5 @@ Module KVStore <: SerializableMergableMapInterface String_as_SOT := MakeSerializ
 
 Module Export PwMgr := MakePwMgr KVStore AESGCM.
 
-Module Application.
-  Include System.
-  Include PwMgr.
-End Application.
-
 Require Import ExtrOcamlBasic ExtrOcamlString.
-Extraction "ExamplePwMgrWithSSBFull" Application.
+Extraction "ExamplePwMgrWithSSBFull" proc.

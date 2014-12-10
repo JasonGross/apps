@@ -1,3 +1,6 @@
-module R = Runtime.Main(ExamplePwMgrWithSSBFull);;
+module R = Runtime.Main(struct
+  include ExamplePwMgrWithSSBFull
+  include ExamplePwMgrWithSSBFull.PwMgr
+end);;
 
 R.main ();;
