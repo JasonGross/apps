@@ -11,6 +11,7 @@ Makefile.coq.bak
 .dir-locals.el
 *.mli
 *.ml.d
+*.mli.d
 *.cmo
 *.cmi
 *.o
