@@ -62,12 +62,12 @@ Module TrustedDecryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
            match i with
 
              | dbSetMasterKey key
-               => (if Algorithm.isValidMasterKey key as isValid return Algorithm.isValidMasterKey key = isValid -> _
-                   then fun pf => (None,
-                                   {| masterKey := Some (exist _ key pf) |})
-                   else fun pf => (Some (inl (@dbErrorInvalidMasterKey key pf)),
-                                   {| masterKey := None |})) eq_refl
-
+               => match Sumbool.sumbool_of_bool (Algorithm.isValidMasterKey key) with
+                    | left pf => (None,
+                                  {| masterKey := Some (exist _ key pf) |})
+                    | right pf => (Some (inl (@dbErrorInvalidMasterKey key pf)),
+                                   {| masterKey := None |})
+                  end
              | dbDecrypt data tag
                => (match st.(masterKey) with
                      | None => Some (inl dbErrorNoMasterKey)

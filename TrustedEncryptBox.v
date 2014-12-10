@@ -71,11 +71,12 @@ Module TrustedEncryptBox (DataTypes : EncryptionDataTypes) (Algorithm : Encrypti
            match i with
 
              | ebSetMasterKey key
-               => (if Algorithm.isValidMasterKey key as isValid return Algorithm.isValidMasterKey key = isValid -> _
-                   then fun pf => (None,
-                                   {| masterKey := Some (exist _ key pf) |})
-                   else fun pf => (Some (inl (@ebErrorInvalidMasterKey key pf)),
-                                   {| masterKey := None |})) eq_refl
+               => match Sumbool.sumbool_of_bool (Algorithm.isValidMasterKey key) with
+                    | left pf => (None,
+                                  {| masterKey := Some (exist _ key pf) |})
+                    | right pf => (Some (inl (@ebErrorInvalidMasterKey key pf)),
+                                   {| masterKey := None |})
+                  end
 
              | ebSystemRandomness randomness (rawData, tag)
                => (match st.(masterKey) with

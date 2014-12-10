@@ -233,23 +233,36 @@ Module MakePwMgr
       rewrite stackProcess_eta at 1; reflexivity.
     Qed.
 
-    (*
-  CoFixpoint pwMgrGood' :
-    forall pws, emptiesStackForever
-      (Step (pwMgrLoopBody pwMgrLoop (wrap_ui (fun world uiConsoleOut uiEncrypt => uiLoop world uiConsoleOut uiEncrypt pws)) (wrap_net net))).
-  Proof.
-    intro; constructor.
-    let tac := (idtac;
-                match goal with
-                  | [ |- appcontext[match split ?a ?b with _ => _ end] ] => destruct (split a b)
-                  | [ |- appcontext[match string_dec ?s0 ?s1 with _ => _ end] ] => destruct (string_dec s0 s1)
-                  | [ |- appcontext[match ?l with nil => _ | _ => _ end] ] => destruct l
-                  | [ |- appcontext[match find ?f ?ls with _ => _ end] ] => destruct (find f ls)
-                  | [ |- appcontext[match ?x with (_, _) => _ end] ] => rewrite (@surjective_pairing _ _ x)
-                end) in
-    emptiesStackForever_t pwMgrGood' input (@pwMgrLoop_eta) (@pwMgrLoop) tac.
-  Qed.
-     *)
+    CoFixpoint pwMgrGood' : 
+      forall ssbState uiState storageId,
+        emptiesStackForever
+          (Step
+             (pwMgrLoopBody 
+                pwMgrLoop
+                (wrap_ssb
+                   (SSB.serverSyncBox
+                      (fun s1 s2 : EncryptionStringDataTypes.rawDataT =>
+                         if string_dec s1 s2 then true else false) ssbState))
+                (wrap_wb WB.warningBox) (wrap_ui (fun world handle => @UI.uiLoop world handle uiState))
+                (wrap_net
+                   (fun (world : Type) (handle : netOutput -> action world) =>
+                      net world handle storageId)))).
+    Proof.
+      intro; constructor.
+      let tac := (idtac; 
+                  match goal with
+                    | [ |- appcontext[match split ?a ?b with _ => _ end] ] => destruct (split a b)
+                    | [ |- appcontext[match string_dec ?s0 ?s1 with _ => _ end] ] => destruct (string_dec s0 s1)
+                    | [ |- appcontext[match ?l with nil => _ | _ => _ end] ] => destruct l
+                    | [ |- appcontext[match find ?f ?ls with _ => _ end] ] => destruct (find f ls)
+                    | [ |- appcontext[match ?x with (_, _) => _ end] ] => rewrite (@surjective_pairing _ _ x)
+                    | [ |- appcontext[match ?a with (pwMgrNetInput _) => _ | _ => _ end] ] => destruct a
+                    | [ |- appcontext[match ?a with None => _ | _ => _ end] ] => destruct a
+                    | [ |- appcontext[match dec ?b with _ => _ end] ] => destruct (dec b)
+                    | _ => progress unfold storageSet in *
+                  end) in
+      emptiesStackForever_t pwMgrGood' input (@pwMgrLoop_eta) (@pwMgrLoop) tac.
+      Admitted.
 
     Theorem pwMgrGood initStore storageId :
       emptiesStackForever
@@ -261,12 +274,8 @@ Module MakePwMgr
     Proof.
       unfold mkPwMgrStack.
       rewrite pwMgrLoop_eta.
-      (*
-    eapply pwMgrGood'.
-       *)
-      admit.
+      eapply pwMgrGood'.
     Qed.
-
 
     Definition initStore := "".
     (** We should do something sane here, not use "foo" unconditionally. *)
