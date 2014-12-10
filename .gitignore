@@ -17,6 +17,7 @@ Makefile.coq.bak
 *.o
 *.cmx
 *.cmxs
+*.exe
 
 ExamplePwMgr2.ml
 ExamplePwMgr.ml
