@@ -23,6 +23,7 @@ Section systemActions.
       consoleIn : (string -> input) -> action world;
       consoleOut : string -> action world;
       exit : N -> action world;
+      getArgv : (list string -> input) -> action world;
       getNanosecs : (N -> input) -> action world;
       getRandomness : N -> (string -> input) -> action world;
       httpPOST : string -> list (string * string) -> (httpResponse -> input) -> action world;

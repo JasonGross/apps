@@ -21,6 +21,7 @@ module type APPLICATION =
         consoleIn : (char list -> 'input) -> 'world action;
         consoleOut : char list -> 'world action;
         exit : Big.big_int -> 'world action;
+        getArgv : (char list list -> 'input) -> 'world action;
         getNanosecs : (Big.big_int -> 'input) -> 'world action;
         getRandomness : Big.big_int -> (char list -> 'input) -> 'world action;
         httpPOST : char list -> (char list * char list) list -> (httpResponse -> 'input) -> 'world action;
@@ -105,6 +106,11 @@ module Main(P : APPLICATION) : MAIN = struct
 
     P.exit = begin fun code next send ->
       exit (Big_int.int_of_big_int code)
+    end;
+
+    P.getArgv = begin fun cb next send ->
+      send (cb (List.map ExtString.String.explode (Array.to_list Sys.argv)));
+      next send
     end;
 
     P.getNanosecs = begin fun cb next send ->
