@@ -37,7 +37,14 @@ ExamplePwMgrWithSSBFull.cmi : big.cmo
 ExamplePwMgrWithSSBFullRuntime.cmo : Runtime.cmo ExamplePwMgrWithSSBFull.cmi
 ExamplePwMgrWithSSBFullRuntime.cmx : Runtime.cmx ExamplePwMgrWithSSBFull.cmx
 
-ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFull.cmo ExamplePwMgrWithSSBFull.cmi ExamplePwMgrWithSSBFullRuntime.cmo ExamplePwMgrWithSSBFullRuntime.cmx: ExamplePwMgrWithSSBFull.vo
+ExamplePwMgr.cmi ExamplePwMgrWithSSBFull.cmi: %.cmi: %.vo
+	$(CAMLC) $(ZDEBUG) $(ZFLAGS) $*.mli
+
+ExamplePwMgr.cmo ExamplePwMgrWithSSBFull.cmo: %.cmo: %.vo
+	$(CAMLC) $(ZDEBUG) $(ZFLAGS) $*.ml
+
+ExamplePwMgr.cmx ExamplePwMgrWithSSBFull.cmx: %.cmx: %.vo
+	$(CAMLOPTC) $(ZDEBUG) $(ZFLAGS) $*.ml
 
 all: pwmgr-ssb
 pwmgr-ssb: big.cmx Runtime.cmx ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFullRuntime.cmx
