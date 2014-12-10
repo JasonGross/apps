@@ -196,6 +196,8 @@ for field0, ty0 in fields:
         | [ H : _::_ = _::_ |- _ ] => inversion H; clear H
       end.
 
+    Local Arguments tickBoxLoopPreBody / .
+
     Local Ltac handle_eq_false :=
       match goal with
         | [ |- _ -> False ] => idtac
@@ -218,6 +220,7 @@ for field0, ty0 in fields:
                         match fst upd as u return u = fst upd -> _ with
                           | nil => fun _ => nil
                           | inl warning::nil => fun _ => inl (ssbGetUpdateWarning warning)::nil
+                          | inl warning::inl warning'::nil => fun _ => inl (ssbGetUpdateWarning warning)::inl (ssbGetUpdateWarning warning')::nil
                           | _ => fun H => match (_ H) : False with end
                         end eq_refl
                    | inr (tbPublishUpdate val)
@@ -268,6 +271,7 @@ for field0, ty0 in fields:
                         (match fst upd as u return u = fst upd -> _ with
                            | nil => fun _ => nil
                            | inl warning::nil => fun _ => (inl (ssbCASWarning warning))::nil
+                           | inl warning::inl warning'::nil => fun _ => inl (ssbCASWarning warning)::inl (ssbCASWarning warning')::nil
                            | _ => fun H => match (_ H) : False with end
                          end eq_refl,
                          set_ssbCASState st' (snd upd))

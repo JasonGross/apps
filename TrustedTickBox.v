@@ -248,17 +248,19 @@ for field0, ty0 in fields:
   | tbTick (addedTickCount : N)
   | tbValueReady (val : dataT).
 
+  Definition tbInput := (tbConfigInput + tbEventInput)%type.
+
   Inductive tbWarningOutput :=
   | tbWarnNoDataReady
   | tbWarnTicksTooInfrequent (ticks : N)
   | tbWarnInvalidWaitBeforeUpdateInterval (_ : N)
-  | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbEventInput).
+  | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbEventInput)
+  | tbDebugStateTransition (from to : TickBoxPreState) (ev : tbInput).
 
   Inductive tbEventOutput :=
   | tbRequestDataUpdate
   | tbPublishUpdate (val : dataT).
 
-  Definition tbInput := (tbConfigInput + tbEventInput)%type.
   Definition tbOutput := (tbWarningOutput + tbEventOutput)%type.
 
   Context (world : Type)
@@ -298,7 +300,7 @@ for field0, ty0 in fields:
   : N
     := N.modulo ticks st.(publishInterval).
 
-  Definition tickBoxLoopPreBody
+  Definition tickBoxLoopPreBody'
              (st : TickBoxState)
   : tbInput -> (list tbOutput) * TickBoxState
     := fun i =>
@@ -389,6 +391,13 @@ for field0, ty0 in fields:
                  set_curData st (WaitingOnData ticks' publishesSinceLastChange))
 
          end.
+
+  Definition tickBoxLoopPreBody
+             (st : TickBoxState)
+  : tbInput -> (list tbOutput) * TickBoxState
+    := fun i =>
+         let (a, st') := tickBoxLoopPreBody' st i in
+         ((inl (tbDebugStateTransition st st' i))::a, st').
 
   Definition tickBoxLoopBody {T}
              (tickBoxLoop : TickBoxState -> T)
