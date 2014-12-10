@@ -29,6 +29,7 @@ class Item(Base):
 Base.metadata.create_all(bind=engine)
 
 app = flask.Flask(__name__)
+app.request_class.charset = None
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):
