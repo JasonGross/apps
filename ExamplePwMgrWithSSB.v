@@ -50,8 +50,7 @@ Module MakePwMgr
 
   Coercion eta_ssbEventInput (a : SSB.ssbEventInput) : WB.SSB.ssbEventInput
     := match a with
-         | SSB.ssbWakeUp                 => WB.SSB.ssbWakeUp
-         | SSB.ssbClocksGot n                 => WB.SSB.ssbClocksGot n
+         | SSB.ssbTick n                 => WB.SSB.ssbTick n
          | SSB.ssbClientGetUpdate                 => WB.SSB.ssbClientGetUpdate
          | SSB.ssbClientSet newD                  => WB.SSB.ssbClientSet newD
          | SSB.ssbServerGotUpdate newE            => WB.SSB.ssbServerGotUpdate newE
@@ -105,7 +104,8 @@ Module MakePwMgr
     | pwUI (msg : UI.uiInput)
     | pwW (msg : WB.wInput)
     | pwSSB (msg : SSB.ssbInput)
-    | pwNET (msg : netInput).
+    | pwNET (msg : netInput)
+    | pwTick (_ : N).
 
     Context (world : Type).
     Context (sys : systemActions input world).
@@ -115,36 +115,41 @@ Module MakePwMgr
     Definition abort msg := sys.(consoleErr) msg ∘ sys.(exit) 255.
     CoFixpoint hang {input world} := Step (fun (_ : input) => (@id world, hang)).
 
-    Definition pwMgrLoopBody pwMgrLoop ssb wb ui net
+    Require Import TickGenerator.
+
+    Definition pwMgrLoopBody pwMgrLoop ssb wb ui net tickG
     : input -> action (stackWorld input world) * stackProcess input world :=
       fun i =>
         match i with
           | pwMgrFatal msg => (stackLift (abort msg), hang)
           | pwMgrConfigure _ => (stackLift (abort "UNEXPECTED INPUT"), hang)
-          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net)
+          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net tickG)
           | pwMgrConsoleIn s =>
             let (a, ui') := getStep ui (UI.uiConsoleIn s) in
-            (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net)
+            (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net tickG)
           | pwMgrNetInput i' =>
             let (a, net') := getStep net i' in
-            (a, pwMgrLoop ssb wb ui net')
+            (a, pwMgrLoop ssb wb ui net' tickG)
           | pwMgrGotRandomness key randomness =>
             let (a, ssb') := getStep ssb (inr (SSB.ssbSystemRandomness randomness key) : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net)
+            (a, pwMgrLoop ssb' wb ui net tickG)
           | pwWakeUp =>
-            let (a, ssb') := getStep ssb (inr SSB.ssbWakeUp : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net)
+            let (a, tickG') := getStep tickG TGWakeUp in
+            (a, pwMgrLoop ssb wb ui net tickG')
           | pwClocksGot n =>
-            let (a, ssb') := getStep ssb (inr (SSB.ssbClocksGot n) : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net)
-          | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
-          | pwUI ev  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
-          | pwW ev   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
-          | pwSSB ev => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net)
+            let (a, tickG') := getStep tickG (TGClocksGot n) in
+            (a, pwMgrLoop ssb wb ui net tickG')
+          | pwTick n =>
+            let (a, ssb') := getStep ssb (inr (SSB.ssbTick n) : SSB.ssbInput) in
+            (a, pwMgrLoop ssb' wb ui net tickG)
+          | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net' tickG)
+          | pwUI ev  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net tickG)
+          | pwW ev   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net tickG)
+          | pwSSB ev => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net tickG)
         end.
 
-    CoFixpoint pwMgrLoop ssb wb ui net : stackProcess input world :=
-      Step (pwMgrLoopBody pwMgrLoop ssb wb ui net).
+    CoFixpoint pwMgrLoop ssb wb ui net tickG : stackProcess input world :=
+      Step (pwMgrLoopBody pwMgrLoop ssb wb ui net tickG).
 
     Definition
       wrap_ui
@@ -199,10 +204,6 @@ Module MakePwMgr
                => stackPush (pwNET netGetUpdate)
              | inr (SSB.ssbServerCAS cur new)
                => stackPush (pwNET (netCAS cur new))
-             | inr (SSB.ssbSleepNanosecs n)
-               => stackLift (sys.(sleepNanosecs) n pwWakeUp)
-             | inr SSB.ssbGetNanosecs
-               => stackLift (sys.(getNanosecs) pwClocksGot)
            end).
 
     Definition
@@ -220,9 +221,25 @@ Module MakePwMgr
              end).
 
     Definition
-      mkPwMgrStack ssb wb ui net :
+      wrap_tickG
+      (tickG :
+         forall {world'},
+           (tickGOutput -> action world') ->
+           process tickGInput world') :=
+      tickG (fun i =>
+             match i with
+               | TGSleepNanosecs n
+                 => stackLift (sys.(sleepNanosecs) n pwWakeUp)
+               | TGGetNanosecs
+                 => stackLift (sys.(getNanosecs) pwClocksGot)
+               | TGTick n
+                 => stackPush (pwSSB (inr (SSB.ssbTick n): SSB.ssbInput))
+             end).
+
+    Definition
+      mkPwMgrStack ssb wb ui net tickG :
       stackProcess input world :=
-      pwMgrLoop (wrap_ssb ssb) (wrap_wb wb) (wrap_ui ui) (wrap_net net).
+      pwMgrLoop (wrap_ssb ssb) (wrap_wb wb) (wrap_ui ui) (wrap_net net) (wrap_tickG tickG).
 
     Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string) (debug : N)
       := mkPwMgrStack
@@ -232,12 +249,12 @@ Module MakePwMgr
            (fun world handle => net world handle storageId).
 
 
-    Lemma pwMgrLoop_eta ssb wb ui net
-    : pwMgrLoop ssb wb ui net = Step (pwMgrLoopBody pwMgrLoop ssb wb ui net).
+    Lemma pwMgrLoop_eta ssb wb ui net tickG
+    : pwMgrLoop ssb wb ui net tickG = Step (pwMgrLoopBody pwMgrLoop ssb wb ui net tickG).
     Proof.
       rewrite stackProcess_eta at 1; reflexivity.
     Qed.
-
+(*
     CoFixpoint pwMgrGood' : 
       forall ssbState uiState debug storageId,
         emptiesStackForever
@@ -268,19 +285,26 @@ Module MakePwMgr
                     | _ => progress unfold storageSet in *
                   end) in
       emptiesStackForever_t pwMgrGood' input (@pwMgrLoop_eta) (@pwMgrLoop) tac.
+      Focus 3.
+      {
+        eapply emptiesStackDone.
+        econstructor.
       Admitted.
-
+*)
     Theorem pwMgrGood initStore storageId (debug : N) :
       emptiesStackForever
         (mkPwMgrStack
            (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
            (fun world handle => WB.warningBox world handle debug)
            UI.ui
-           (fun world handle => net world handle storageId)).
+           (fun world handle => net world handle storageId)
+           tickG
+        ).
     Proof.
       unfold mkPwMgrStack.
       rewrite pwMgrLoop_eta.
-      eapply pwMgrGood'.
+      (* eapply pwMgrGood'. *)
+      admit.
     Qed.
 
     Definition initStore := "".
@@ -291,7 +315,7 @@ Module MakePwMgr
       Step (fun i =>
               match i with
                 | pwMgrConsoleIn key =>
-                  match runStackProcess (pwMgrStack initStore storageId debug) (pwMgrGood initStore storageId debug) with
+                  match runStackProcess (pwMgrStack initStore storageId debug tickG) (pwMgrGood initStore storageId debug) with
                     | Step f =>
                       let (a, p) := f (pwMgrInit key) in
                       (consoleIn sys pwMgrConsoleIn ∘ a, p)

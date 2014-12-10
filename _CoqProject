@@ -40,4 +40,4 @@ ExamplePwMgrWithSSBFull.mli
 ExamplePwMgrWithSSBFull.ml
 ExamplePwMgrWithSSBFullRuntime.ml
 ExamplePwMgr2.v
-TrustedTickBoxWrapper.v
+TickGenerator.v
