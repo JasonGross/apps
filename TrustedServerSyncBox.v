@@ -387,10 +387,14 @@ for field0, ty0 in fields:
                             (inr (tbNotifyChange _)))
 
                   | inr (ssbServerGotUpdate dataE)
-                    => handle_ssbDecrypt
-                         st
+                    => let st' := set_ssbState
+                                    st
+                                    {| localStateD := st.(localStateD);
+                                       remoteStateE := Some dataE |} in
+                       handle_ssbDecrypt
+                         st'
                          (decryptBoxLoopPreBody
-                            (st.(ssbDecryptState))
+                            (st'.(ssbDecryptState))
                             (dbDecrypt dataE tt))
 
                   | inr (ssbSystemRandomness randomness tag)
