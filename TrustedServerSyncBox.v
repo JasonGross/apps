@@ -349,7 +349,7 @@ for field0, ty0 in fields:
                                               (st.(ssbEncryptState))
                                               (ebSetMasterKey _ newKey)) in
                        let (ls1, st1) := handle_ssbDecrypt
-                                           st
+                                           st0
                                            (decryptBoxLoopPreBody
                                               (st.(ssbDecryptState))
                                               (dbSetMasterKey _ newKey)) in
@@ -387,10 +387,14 @@ for field0, ty0 in fields:
                             (inr (tbNotifyChange _)))
 
                   | inr (ssbServerGotUpdate dataE)
-                    => handle_ssbDecrypt
-                         st
+                    => let st' := set_ssbState
+                                    st
+                                    {| localStateD := st.(localStateD);
+                                       remoteStateE := Some dataE |} in
+                       handle_ssbDecrypt
+                         st'
                          (decryptBoxLoopPreBody
-                            (st.(ssbDecryptState))
+                            (st'.(ssbDecryptState))
                             (dbDecrypt dataE tt))
 
                   | inr (ssbSystemRandomness randomness tag)
