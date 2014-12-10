@@ -94,6 +94,8 @@ Module MakePwMgr
   Section pwMgr.
 
     Inductive input :=
+    | pwMgrFatal (msg : string)
+    | pwMgrConfigure (debug : N)
     | pwMgrInit (key : string)
     | pwMgrConsoleIn (line : string)
     | pwMgrNetInput (response : netInput)
@@ -119,6 +121,8 @@ Module MakePwMgr
     : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
       fun i =>
         match i with
+          | inr (pwMgrFatal msg) => (stackLift (abort msg), hang)
+          | inr (pwMgrConfigure _) => (stackLift (abort "UNEXPECTED INPUT"), hang)
           | inr (pwMgrInit key) => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net)
           | inr (pwMgrConsoleIn s) =>
             let (a, ui') := getStep ui (UI.uiConsoleIn s) in
@@ -222,10 +226,10 @@ Module MakePwMgr
       stackProcess pwMgrMessage input world :=
       pwMgrLoop (wrap_ssb ssb) (wrap_wb wb) (wrap_ui ui) (wrap_net net).
 
-    Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string)
+    Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string) (debug : N)
       := mkPwMgrStack
            (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
-           WB.warningBox
+           (fun world handle => WB.warningBox world handle debug)
            UI.ui
            (fun world handle => net world handle storageId).
 
@@ -254,11 +258,11 @@ Module MakePwMgr
   Qed.
      *)
 
-    Theorem pwMgrGood initStore storageId :
+    Theorem pwMgrGood initStore storageId (debug : N) :
       emptiesStackForever
         (mkPwMgrStack
            (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
-           WB.warningBox
+           (fun world handle => WB.warningBox world handle debug)
            UI.ui
            (fun world handle => net world handle storageId)).
     Proof.
@@ -275,11 +279,11 @@ Module MakePwMgr
     (** We should do something sane here, not use "foo" unconditionally. *)
     Definition storageId := "foo".
 
-    CoFixpoint getMasterKeyLoop :=
+    CoFixpoint getMasterKeyLoop debug :=
       Step (fun i =>
               match i with
                 | pwMgrConsoleIn key =>
-                  match runStackProcess (pwMgrStack initStore storageId) (pwMgrGood initStore storageId) with
+                  match runStackProcess (pwMgrStack initStore storageId debug) (pwMgrGood initStore storageId debug) with
                     | Step f =>
                       let (a, p) := f (pwMgrInit key) in
                       (consoleIn sys pwMgrConsoleIn ∘ a, p)
@@ -287,8 +291,37 @@ Module MakePwMgr
                 | _ => (abort "UNEXPECTED INPUT", hang)
               end).
 
-    Definition proc
-      := (consoleOut sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop).
+    Definition getMasterKey debug
+      := (consoleOut sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop debug).
+
+    Fixpoint parseFlag argv0 debug flag next :=
+      match flag with
+        | EmptyString => next debug
+        | (String "d" flag') => parseFlag argv0 (debug + 1)%N flag' next
+        | _ => pwMgrFatal ("usage: " ++ argv0)
+      end.
+
+    Fixpoint parseArgv' argv0 argv debug :=
+      match argv with
+        | nil => pwMgrConfigure debug
+        | (String "-" flag) :: argv' => parseFlag argv0 debug flag (parseArgv' argv0 argv')
+        | _ => pwMgrFatal ("usage: " ++ argv0 ++ " [-d...]")
+      end.
+
+    Definition parseArgv debug argv :=
+      match argv with
+        | nil => pwMgrFatal "EMPTY ARGV"
+        | argv0 :: argv' => parseArgv' argv0 argv' debug
+      end.
+
+    Definition proc : action world * process input world :=
+      (sys.(getArgv) (parseArgv 0),
+       Step (fun i =>
+               match i with
+                 | pwMgrFatal msg => (abort msg, hang)
+                 | pwMgrConfigure debug => getMasterKey debug
+                 | _ => (abort "UNEXPECTED INPUT", hang)
+               end)).
 
   End pwMgr.
 End MakePwMgr.

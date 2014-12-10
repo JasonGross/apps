@@ -1,5 +1,5 @@
 (** * A Box to emit warnings for the PWMgr *)
-Require Import Coq.Program.Program Coq.Strings.String.
+Require Import Coq.NArith.BinNat Coq.Program.Program Coq.Strings.String.
 Require Import FunctionApp TrustedServerSyncBox EncryptionInterface TrustedTickBox PrefixSerializable.
 Require Import TrustedTickBoxPrefixSerializable.
 
@@ -53,46 +53,44 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
            | tbDebugStateTransition old new ev' => debug component (labelTBStateTransition (T := T) old new ev')
          end.
 
-    Definition wLoopBody (wLoop : unit -> process wInput world) (st : unit)
+    Definition wLoopBody (wLoop : N -> process wInput world) (debug : N)
     : wInput -> action world * process wInput world
       := fun i =>
            match i with
              | SSB.ssbGetUpdateWarning ev
-               => (emitTB ev "Get Update Box", wLoop st)
+               => (emitTB ev "Get Update Box", wLoop debug)
              | SSB.ssbCASWarning ev
-               => (emitTB ev "Compare And Set Box", wLoop st)
+               => (emitTB ev "Compare And Set Box", wLoop debug)
              | SSB.ssbWarningPushBeforePull
                => (emit "Cannot do a server-compare-and-swap before obtaining server's current state",
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbEncryptError (SSB.TEB.ebErrorNotEnoughRandomness howMuch given)
                (* we should use a better [nat -> string] here, that isn't binary *)
                => (handle (wConsoleErr ("Not enough randomness: wanted " ++ (to_string howMuch) ++ ", but got the string: '" ++ given ++ "'")),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbEncryptError (SSB.TEB.ebErrorInvalidMasterKey key pf)
                => (handle (wFatalError ("Invalid Master Key: " ++ key)),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbEncryptError SSB.TEB.ebErrorNoMasterKey
                (* is this [wBad], or just [wConsoleErr]? *)
                => (handle (wBad "No Master Key in encryption box"),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbDecryptError (SSB.TDB.dbErrorInvalidMasterKey key pf)
                => (handle (wFatalError ("Invalid Master Key: " ++ key)),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbDecryptError SSB.TDB.dbErrorNoMasterKey
                (* is this [wBad], or just [wConsoleErr]? *)
                => (handle (wBad "No Master Key in decryption box"),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbDecryptError (SSB.TDB.dbErrorInvalidData data tt)
                => (handle (wConsoleErr ("Server got corrupted - encrypted data recieved is: " ++ data)),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbWarningInvalidTransition ev' st'
-               => (handle (wBad "Server Sync Box invalid transition"), wLoop st)
+               => (handle (wBad "Server Sync Box invalid transition"), wLoop debug)
            end.
 
-    CoFixpoint wLoop (st : unit) :=
-      Step (wLoopBody wLoop st).
-
-    Definition warningBox := wLoop tt.
+    CoFixpoint warningBox (debug : N) :=
+      Step (wLoopBody warningBox debug).
 
   End warnings.
 End PwMgrWarningBox.
