@@ -138,7 +138,7 @@ for field0, ty0 in fields:
     | ssbClientSet (newD : rawDataT)
     | ssbServerGotUpdate (newE : encryptedDataT)
     | ssbSystemRandomness (randomness : systemRandomnessT) (tag : rawDataT)
-    | ssbWakeUp 
+    | ssbWakeUp
     | ssbClocksGot (_ : N).
 
     Definition ssbInput := (ssbConfigInput + ssbEventInput)%type.
@@ -194,9 +194,11 @@ for field0, ty0 in fields:
         | [ H : inr _ = inr _ |- _ ] => inversion H; clear H
         | [ H : Some _ = Some _ |- _ ] => inversion H; clear H
         | [ H : _::_ = _::_ |- _ ] => inversion H; clear H
+        | [ H : ?a = ?b |- _ ]
+          => let a' := (eval hnf in a) in
+             let b' := (eval hnf in b) in
+             progress change (a' = b') in H
       end.
-
-    Local Arguments tickBoxLoopPreBody / .
 
     Local Ltac handle_eq_false :=
       match goal with
