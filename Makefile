@@ -25,8 +25,6 @@ ExamplePwMgr.cmi : big.cmo
 ExamplePwMgrRuntime.cmo : Runtime.cmo ExamplePwMgr.cmi
 ExamplePwMgrRuntime.cmx : Runtime.cmx ExamplePwMgr.cmx
 
-ExamplePwMgr.cmx ExamplePwMgr.cmo ExamplePwMgr.cmi ExamplePwMgrRuntime.cmo ExamplePwMgrRuntime.cmx: ExamplePwMgr.vo
-
 pwmgr: big.cmx Runtime.cmx ExamplePwMgr.cmx ExamplePwMgrRuntime.cmx
 	$(OCAMLFIND) $(CAMLOPTLINK) -linkpkg $(OCAMLPKGS:%=-package %) nums.cmxa $(ZDEBUG) -o $@ $^
 
