@@ -34,4 +34,7 @@ ExamplePwMgr.ml
 ExamplePwMgrRuntime.ml
 ExamplePwMgrWithSSB.v
 ExamplePwMgrWithSSBFull.v
+ExamplePwMgrWithSSBFull.mli
+ExamplePwMgrWithSSBFull.ml
+ExamplePwMgrWithSSBFullRuntime.ml
 ExamplePwMgr2.v
