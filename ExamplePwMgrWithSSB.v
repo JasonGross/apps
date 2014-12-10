@@ -112,6 +112,9 @@ Module MakePwMgr
 
     Definition one_second := 1000000000%N.
 
+    Definition abort msg := sys.(consoleErr) msg ∘ sys.(exit) 255.
+    CoFixpoint hang {input world} := Step (fun (_ : input) => (@id world, hang)).
+
     Definition pwMgrLoopBody pwMgrLoop ssb wb ui net
     : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
       fun i =>
@@ -170,9 +173,9 @@ Module MakePwMgr
              | WB.wConsoleErr lines
                => stackLift (sys.(consoleErr) lines)
              | WB.wBad msg
-               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
+               => stackLift (abort msg)
              | WB.wFatalError msg
-               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
+               => stackLift (abort msg)
            end).
 
     Definition
@@ -281,7 +284,7 @@ Module MakePwMgr
                       let (a, p) := f (pwMgrInit key) in
                       (consoleIn sys pwMgrConsoleIn ∘ a, p)
                   end
-                | _ => (consoleErr sys "UNEXPECTED INPUT", getMasterKeyLoop)
+                | _ => (abort "UNEXPECTED INPUT", hang)
               end).
 
     Definition proc
