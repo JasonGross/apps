@@ -10,9 +10,6 @@ Local Open Scope program_scope.
 Section gateway.
 
   Context (world : Type).
-  Context (sleepNanosecs : N -> action world).
-  Context (getNanosecs : action world).
-  Context (tick : N -> action world).
 
   Inductive gatewayInput :=
   | GWakeUp
@@ -23,27 +20,46 @@ Section gateway.
 
   Open Scope N_scope.
 
-  Definition gatewayLoopBody (loop : option N -> process gatewayInput world) (st : option N)
-  : gatewayInput -> action world * process gatewayInput world
-    := (fun i =>
-          match i with
-            | GWakeUp =>
-              (getNanosecs, loop st)
-            | GClocksGot new =>
-              let action :=
-                  match st with
-                    | Some prev => 
-                      let ticks := (new - prev) / nanos_per_tick in
-                      compose (sleepNanosecs sleep_nanos) (tick ticks)
-                    | None => id
-                  end in
-              (compose (sleepNanosecs sleep_nanos) action, loop (Some new))
-          end).
-                                       
+  Inductive gatewayOutput :=
+  | GOSleep (_ : N)
+  | GOGetClock
+  | GOTick (_ : N).
+
+  Definition GatewayState := option N.
+
+  Definition gatewayLoopPreBody (st : option N) : gatewayInput -> (list gatewayOutput) * GatewayState :=
+    fun i =>
+      match i with
+        | GWakeUp =>
+          (GOGetClock :: nil, st)
+        | GClocksGot new =>
+          let actions :=
+              match st with
+                | Some prev => 
+                  let ticks := (new - prev) / nanos_per_tick in
+                  GOTick ticks :: nil
+                | None => nil
+              end in
+          (actions ++ GOSleep sleep_nanos :: nil, Some new)
+      end.
+
+  Context (handle : gatewayOutput -> action world).
+
+  Definition gatewayLoopBody {T}
+             (loop : GatewayState -> T)
+             (st : GatewayState)
+  : gatewayInput -> action world * T
+    := fun i => let outputs := fst (gatewayLoopPreBody st i) in
+                let st' := snd (gatewayLoopPreBody st i) in
+                (fold_left compose (map handle outputs) id,
+                 loop st').
+
   CoFixpoint gatewayLoop (st : option N) :=
     Step (gatewayLoopBody gatewayLoop st).
 
-  Definition gateway := gatewayLoop None.
+  Definition gatewayInitState : GatewayState := None.
+
+  Definition gateway := gatewayLoop gatewayInitState.
 
 End gateway.
 
@@ -52,100 +68,100 @@ Section tickBox.
   Variable dataT : Type.
   Context (world : Type).
 
-  Inductive tbConfigInput :=
-  | tbSetPublishInterval (_ : N)
-  | tbSetPublishDuration (_ : PublishDurationT)
-  | tbSetWaitBeforeUpdateInterval (_ : N)
-  | tbSetPublishPrecision (_ : N).
-
   Inductive tbEventInput :=
   | tbNotifyChange
   | tbWakeUp
   | tbClocksGot (nanoseconds : N)
   | tbValueReady (val : dataT).
 
-  Definition tbInput := (tbConfigInput + tbEventInput)%type.
+  Inductive tbEventOutput :=
+  | tbRequestDataUpdate
+  | tbPublishUpdate (val : dataT)
+  | tbSleepNanosecs (nanos : N)
+  | tbGetNanosecs.
 
-  Definition getStep {input output} (p : process input output) :=
-    match p with
-      | Step f => f
+  Definition tbInput := (tbConfigInput + tbEventInput)%type.
+  Definition tbOutput := (tbWarningOutput dataT + tbEventOutput)%type.
+
+  Definition to_tbOutput (a : TrustedTickBox.tbOutput dataT) :=
+    match a with
+      | inl x => inl x
+      | inr (TrustedTickBox.tbRequestDataUpdate) => inr tbRequestDataUpdate
+      | inr (TrustedTickBox.tbPublishUpdate x) => inr (tbPublishUpdate x)
     end.
 
-  Inductive tbMessage :=
-  | tbTick (ticks : N).
+  Notation TickBoxStateOrigin := (TrustedTickBox.TickBoxState dataT).
 
-  Definition tbLoopBody loop gateway tb : @stackInput tbMessage tbInput -> action (stackWorld tbMessage world) * stackProcess tbMessage tbInput world :=
+  Definition TickBoxState := (GatewayState * TickBoxStateOrigin)%type.
+
+  Definition initState : TickBoxState := (gatewayInitState, TrustedTickBox.initState dataT).
+
+  Definition tb := @TrustedTickBox.tickBoxLoopPreBody dataT.
+  Definition gw := gatewayLoopPreBody.
+
+  Definition convert := map to_tbOutput.
+
+  Definition handle_gateway_output (o : gatewayOutput) (st : TickBoxStateOrigin) :=
+    match o with
+      | GOTick n => 
+        let (o, st') := tb st (inr (tbTick dataT n)) in
+        (convert o, st')
+      | GOSleep n => (inr (tbSleepNanosecs n) :: nil, st)
+      | GOGetClocks => (inr tbGetNanosecs :: nil, st)
+    end.
+
+  Definition handle_gateway_outputs outputs (st : TickBoxStateOrigin) :=
+    fold_left 
+      (fun (p : list _ * _) o => 
+         let (acc, st) := p in 
+         let (os, st') := handle_gateway_output o st in
+         (acc ++ os, st')) 
+      outputs (nil, st).
+
+  Definition tickBoxLoopPreBody
+             (st : TickBoxState)
+  : tbInput -> (list tbOutput) * TickBoxState :=
     fun i =>
       match i with
-        | inr (inl (tbSetPublishInterval x)) =>
-          let (a, tb') := getStep tb (inl (TrustedTickBox.tbSetPublishInterval x)) in (a, loop gateway tb')
-        | inr (inl (tbSetPublishDuration x)) =>
-          let (a, tb') := getStep tb (inl (TrustedTickBox.tbSetPublishDuration x)) in (a, loop gateway tb')
-        | inr (inl (tbSetWaitBeforeUpdateInterval x)) =>
-          let (a, tb') := getStep tb (inl (TrustedTickBox.tbSetWaitBeforeUpdateInterval x)) in (a, loop gateway tb')
-        | inr (inl (tbSetPublishPrecision x)) =>
-          let (a, tb') := getStep tb (inl (TrustedTickBox.tbSetPublishPrecision x)) in (a, loop gateway tb')
-        | inr (inr tbNotifyChange) =>
-          let (a, tb') := getStep tb (inr (TrustedTickBox.tbNotifyChange dataT)) in (a, loop gateway tb')
-        | inr (inr (tbValueReady x)) =>
-          let (a, tb') := getStep tb (inr (TrustedTickBox.tbValueReady x)) in (a, loop gateway tb')
-        | inr (inr tbWakeUp) =>
-          let (a, gateway') := getStep gateway GWakeUp in (a, loop gateway' tb)
-        | inr (inr (tbClocksGot x)) =>
-          let (a, gateway') := getStep gateway (GClocksGot x) in (a, loop gateway' tb)
-        | inl (tbTick x) =>
-          let (a, tb') := getStep tb (inr (TrustedTickBox.tbTick dataT x)) in (a, loop gateway tb')
+        | inl x =>
+          let (a, b) := st in
+          let (o, b') := tb b (inl x) in 
+          (convert o, (a, b'))
+        | inr tbNotifyChange =>
+          let (a, b) := st in
+          let (o, b') := tb b (inr (TrustedTickBox.tbNotifyChange dataT)) in 
+          (convert o, (a, b'))
+        | inr (tbValueReady x) =>
+          let (a, b) := st in
+          let (o, b') := tb b (inr (TrustedTickBox.tbValueReady x)) in 
+          (convert o, (a, b'))
+        | inr tbWakeUp =>
+          let (a, b) := st in
+          let (o, a') := gw a GWakeUp in
+          let (o, b') := handle_gateway_outputs o b in
+          (o, (a', b'))
+        | inr (tbClocksGot x) =>
+          let (a, b) := st in
+          let (o, a') := gw a (GClocksGot x) in
+          let (o, b') := handle_gateway_outputs o b in
+          (o, (a', b'))
       end.
 
-  CoFixpoint tbLoop gateway tb : stackProcess tbMessage tbInput world :=
-    Step (tbLoopBody tbLoop gateway tb).
+  Context (handle : tbOutput -> action world).
 
-  Require Import System.
+  Definition tickBoxLoopBody {T}
+             (tickBoxLoop : TickBoxState -> T)
+             (st : TickBoxState)
+  : tbInput -> action world * T
+    := fun i => let outputs := fst (tickBoxLoopPreBody st i) in
+                let st' := snd (tickBoxLoopPreBody st i) in
+                (fold_left compose (map handle outputs) id,
+                 tickBoxLoop st').
 
-  Context (sys : systemActions tbInput world).
-  Definition sleepNanosecs (nanos : N) := System.sleepNanosecs sys nanos (inr tbWakeUp).
-  Definition getNanosecs := System.getNanosecs sys (compose inr tbClocksGot).
+  CoFixpoint tickBoxLoop (st : TickBoxState) :=
+    Step (tickBoxLoopBody tickBoxLoop st).
 
-  Definition
-    wrap_gateway
-    (gateway :
-       forall {world'},
-         (N -> action world') ->
-         (action world') ->
-         (N -> action world') ->
-         process gatewayInput world') :=
-    gateway
-      (fun s => stackLift (sleepNanosecs s))
-      (stackLift getNanosecs)
-      (fun s => stackPush (tbTick s)).
-
-  Notation tbOutputOrigin := (TrustedTickBox.tbOutput dataT).
-  Notation tbInputOrigin := (TrustedTickBox.tbInput dataT).
-
-  Context (handle : tbOutputOrigin -> action world).
-
-  Definition
-    wrap_tb
-    (tb :
-       forall {world'},
-         (tbOutputOrigin -> action world') ->
-         process tbInputOrigin world') :=
-    tb
-      (fun s => @stackLift tbMessage world (handle s)).
-
-  Definition
-    mkTickBoxStack gateway tb :
-    stackProcess tbMessage tbInput world :=
-    tbLoop (wrap_gateway gateway) (wrap_tb tb).
-
-  Definition tbStack := mkTickBoxStack gateway (@TrustedTickBox.tickBox dataT).
-
-  Theorem tbGood : emptiesStackForever tbStack.
-  Proof.
-    admit.
-  Qed.
-
-  Definition tickBox := runStackProcess tbStack tbGood.
+  Definition tickBox : process _ _ := tickBoxLoop initState.
 
 End tickBox.
 
