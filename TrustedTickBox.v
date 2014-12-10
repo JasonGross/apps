@@ -372,7 +372,7 @@ for field0, ty0 in fields:
                       (if enoughTransmissions publishesSinceLastChange' st'
                        then (set_curData st' (NoData (ticksMod ticks' st')))
                        else (set_curData st' (WaitingOnTicks (ticksMod ticks' st') (Some publishesSinceLastChange')))))
-                else (id, st')
+                else (nil, st')
 
            | inr (tbTick ticksSinceLastTick), WaitingOnTicks ticks publishesSinceLastChange
              => let ticks' := ticksSinceLastTick + ticks in
