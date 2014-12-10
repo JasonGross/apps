@@ -26,6 +26,7 @@ Require PwMgrWarningBox.
 (** *** Proven-correct Serialization and Deserialization *)
 (** Waaaay too much code here. *)
 Require PrefixSerializableDefinitions PrefixSerializable.
+Require TrustedTickBoxPrefixSerializable.
 (** *** Proven-correct [FMapInterface] that is also mergable and (de)serializable *)
 Require SerializableMergableFMapInterface SerializableMergableFMapImplementation.
 (** *** UI Code *)

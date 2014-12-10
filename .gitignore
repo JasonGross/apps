@@ -4,6 +4,8 @@
 *.depend
 Makefile.coq
 Makefile.coq.bak
+Makefile.coq.old
+Makefile.coq.old.bak
 *.vo
 *.glob
 *.v.d

@@ -11,7 +11,8 @@ coq: Makefile.coq
 
 # we need to hack around https://coq.inria.fr/bugs/show_bug.cgi?id=2950 for Coq 8.4pl4 on Windows
 Makefile.coq: Makefile _CoqProject
-	$(COQBIN)coq_makefile -f _CoqProject $(MYOCAMLLIBS) | sed s'/ $$(COQLIB)/ "$$(COQLIB)"/g' > Makefile.coq
+	$(COQBIN)coq_makefile -f _CoqProject $(MYOCAMLLIBS) -o Makefile.coq.old
+	sed s'/ $$(COQLIB)/ "$$(COQLIB)"/g' Makefile.coq.old > Makefile.coq
 
 
 all: pwmgr

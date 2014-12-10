@@ -1,6 +1,7 @@
 (** * A Box to emit warnings for the PWMgr *)
 Require Import Coq.Program.Program Coq.Strings.String.
 Require Import FunctionApp TrustedServerSyncBox EncryptionInterface TrustedTickBox PrefixSerializable.
+Require Import TrustedTickBoxPrefixSerializable.
 
 Local Open Scope string_scope.
 
@@ -29,19 +30,27 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
     Context (world : Type)
             (handle : wOutput -> action world).
 
-    (*efinition newline := "010"%char.*)
+    Definition newline := "010"%char.
+    Definition newlineS := String newline "".
 
     Definition emit (body : string) : action world
       := handle (wConsoleErr ("WARNING: " ++ body)).
 
-    Definition emitTB {T} (ev : tbWarningOutput T) (component : string) : action world
+    Definition debug (component body : string) : action world
+      := handle (wConsoleErr ("DEBUG (" ++ component ++ "): " ++ body)).
+
+    Definition labelTBStateTransition {T} `{Serializable T} (old new : TrustedTickBox.TickBoxPreState T) (ev : TrustedTickBox.tbInput T)
+    : string
+      := "from" ++ newlineS ++ "  " ++ to_string old ++ newlineS ++ "to (" ++ to_string ev ++ ")" ++ newlineS ++ "  " ++ to_string new.
+
+    Definition emitTB {T} `{Serializable T} (ev : tbWarningOutput T) (component : string) : action world
       := let pre := ("In component '" ++ component ++ "', ") in
          match ev with
            | tbWarnNoDataReady => handle (wBad (pre ++ "data was not ready to send"))
            | tbWarnTicksTooInfrequent ticks => emit (pre ++ "tick starvation is occuring: " ++ to_string ticks)
            | tbWarnInvalidWaitBeforeUpdateInterval n => handle (wBad (pre ++ "invalid wait"))
            | tbWarnInvalidEvent st ev' => handle (wBad (pre ++ "invalid event"))
-           | tbDebugStateTransition old new ev' => id
+           | tbDebugStateTransition old new ev' => debug component (labelTBStateTransition (T := T) old new ev')
          end.
 
     Definition wLoopBody (wLoop : unit -> process wInput world) (st : unit)
