@@ -121,7 +121,7 @@ Module MakePwMgr
         match i with
           | pwMgrFatal msg => (stackLift (abort msg), hang)
           | pwMgrConfigure _ => (stackLift (abort "UNEXPECTED INPUT"), hang)
-          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) (* ∘ stackLift (sys.(sleepNanosecs) one_second (pwSSB (inr SSB.ssbWakeUp))) *), pwMgrLoop ssb wb ui net tickG)
+          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net tickG)
           | pwMgrConsoleIn s =>
             (stackPush (pwUI (UI.uiConsoleIn s)) ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui net tickG)
           | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net' tickG)
