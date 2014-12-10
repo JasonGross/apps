@@ -278,7 +278,7 @@ Module MakePwMgr
               end).
 
     Definition proc
-      := (consoleErr sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop).
+      := (consoleOut sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop).
 
   End pwMgr.
 End MakePwMgr.
