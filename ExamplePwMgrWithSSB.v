@@ -93,6 +93,7 @@ Module MakePwMgr
   Section pwMgr.
 
     Inductive input :=
+    | pwMgrInit (key : string)
     | pwMgrConsoleIn (line : string)
     | pwMgrNetInput (response : netInput)
     | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string)
@@ -113,6 +114,7 @@ Module MakePwMgr
     : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
       fun i =>
         match i with
+          | inr (pwMgrInit key) => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwTick), pwMgrLoop ssb wb ui net)
           | inr (pwMgrConsoleIn s) =>
             let (a, ui') := getStep ui (UI.uiConsoleIn s) in
             (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net)
@@ -125,7 +127,7 @@ Module MakePwMgr
           | inr pwTick =>
             (** TODO: Fix ticks *)
             let (a, ssb') := getStep ssb (inr (SSB.ssbTick 1) : SSB.ssbInput) in
-            (stackLift (sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
+            (stackLift (sys.(consoleOut) "TICK" ∘ sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
 
           | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
           | inl (pwUI ev)  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
@@ -263,8 +265,20 @@ Module MakePwMgr
     (** We should do something sane here, not use "foo" unconditionally. *)
     Definition storageId := "foo".
 
+    CoFixpoint getMasterKeyLoop :=
+      Step (fun i =>
+              match i with
+                | pwMgrConsoleIn key =>
+                  match runStackProcess (pwMgrStack initStore storageId) (pwMgrGood initStore storageId) with
+                    | Step f =>
+                      let (a, p) := f (pwMgrInit key) in
+                      (consoleIn sys pwMgrConsoleIn ∘ a, p)
+                  end
+                | _ => (consoleErr sys "UNEXPECTED INPUT", getMasterKeyLoop)
+              end).
+
     Definition proc
-      := (consoleIn sys pwMgrConsoleIn, runStackProcess (pwMgrStack initStore storageId) (pwMgrGood initStore storageId)).
+      := (consoleErr sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop).
 
   End pwMgr.
 End MakePwMgr.
