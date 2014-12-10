@@ -105,8 +105,7 @@ Module MakePwMgr
     | pwUI (msg : UI.uiInput)
     | pwW (msg : WB.wInput)
     | pwSSB (msg : SSB.ssbInput)
-    | pwNET (msg : netInput)
-    | pwBadState.
+    | pwNET (msg : netInput).
 
     Definition one_second := 1000000000%N.
 
@@ -127,11 +126,6 @@ Module MakePwMgr
             (** TODO: Fix ticks *)
             let (a, ssb') := getStep ssb (inr (SSB.ssbTick 1) : SSB.ssbInput) in
             (stackLift (sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
-
-          (* loop on bad states, spewing warnings (TODO: to stderr) *)
-          | inl pwBadState
-            => (stackLift (sys.(consoleOut) "BAD LOOP" ∘ sys.(exit) 255),
-                pwMgrLoop ssb wb ui net)
 
           | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
           | inl (pwUI ev)  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
@@ -165,7 +159,7 @@ Module MakePwMgr
          forall {world'},
            (WB.wOutput -> action world') ->
            process WB.wInput world') :=
-      wb
+      wb (world' := stackWorld pwMgrMessage world)
         (fun i =>
            match i with
              | WB.wConsoleErr lines
@@ -173,8 +167,7 @@ Module MakePwMgr
                => stackLift (sys.(consoleOut) lines)
              | WB.wBad msg
                (* TODO: to stderr *)
-               => (stackLift (sys.(consoleOut) msg))
-                    ∘ (stackPush pwBadState)
+               => stackLift (sys.(consoleOut) msg ∘ sys.(exit) 255)
            end).
 
     Definition
