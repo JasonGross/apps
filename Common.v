@@ -137,6 +137,21 @@ Tactic Notation "unique" "pose" constr(defn) :=
     | _ => pose defn
   end.
 
+(** like [unique pose proof], but first [simpl] *)
+Tactic Notation "unique" "simpl" "pose" "proof" constr(defn) :=
+  let T0 := type of defn in
+  let T := (eval simpl in T0) in
+  simpl in *;
+    unique pose proof (defn : T).
+
+Tactic Notation "unique" "simpl" "pose" constr(defn) :=
+  let T0 := type of defn in
+  let T := (eval simpl in T0) in
+  let defn' := (eval simpl in defn) in
+  simpl in *;
+    unique pose (defn' : T).
+
+
 Lemma Some_inj {A} {a b : A} (H : Some a = Some b) : a = b.
 Proof.
   congruence.

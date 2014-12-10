@@ -13,6 +13,7 @@ FunctionAppLemmas.v
 FunctionAppTactics.v
 System.v
 TrustedTickBox.v
+TrustedTickBoxSleepCalculations.v
 TrustedTickBoxPrefixSerializable.v
 TrustedServerSyncBox.v
 SerializableMergableFMapInterface.v

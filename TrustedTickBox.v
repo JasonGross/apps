@@ -165,8 +165,8 @@ Definition duration_leb (x : N) (y : PublishDurationT) : bool :=
 Infix "<=?" := duration_leb : duration_scope.
 Local Open Scope duration_scope.
 
-Notation "x >? y" := (y <? x) (at level 70, right associativity) : N_scope.
-Notation "x >=? y" := (y <=? x) (at level 70, right associativity) : N_scope.
+Notation "x >? y" := (y <? x) (at level 70, no associativity) : N_scope.
+Notation "x >=? y" := (y <=? x) (at level 70, no associativity) : N_scope.
 
 Section trustedTickBox.
   Variable dataT : Type.
@@ -272,6 +272,28 @@ for field0, ty0 in fields:
        publishDuration := ∞;
        waitBeforeUpdateInterval := 4000000000;
        publishPrecision := 1000 |}.
+
+  Inductive TicksNeeded :=
+  | NotYetWaitingOnTicks
+  | WillWaitForMoreTicks (n : N).
+
+  Definition howManyMoreTicksNeeded (st : TickBoxState) : TicksNeeded
+    := match st.(curData) with
+         | NoData ticks => NotYetWaitingOnTicks
+         | InitiallyWaitingOnData ticks => NotYetWaitingOnTicks
+         | HaveData ticks _ _
+           => if ticks <=? st.(publishInterval)
+              then WillWaitForMoreTicks (st.(publishInterval) - ticks)
+              else NotYetWaitingOnTicks
+         | WaitingOnTicks ticks _
+           => if ticks <=? st.(waitBeforeUpdateInterval)
+              then WillWaitForMoreTicks (st.(waitBeforeUpdateInterval) - ticks)
+              else NotYetWaitingOnTicks
+         | WaitingOnData ticks _
+           => if ticks <=? st.(publishInterval)
+              then WillWaitForMoreTicks (st.(publishInterval) - ticks)
+              else NotYetWaitingOnTicks
+       end.
 
   Definition readyToTransmit (ticks : N) (st : TickBoxState) : bool :=
     ticks >=? st.(publishInterval).
