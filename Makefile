@@ -21,6 +21,8 @@ all: pwmgr
 ExamplePwMgr.cmo : big.cmo ExamplePwMgr.cmi
 ExamplePwMgr.cmx : big.cmx ExamplePwMgr.cmi
 ExamplePwMgr.cmi : big.cmo
+ExamplePwMgrRuntime.cmo : Runtime.cmo ExamplePwMgr.cmi
+ExamplePwMgrRuntime.cmx : Runtime.cmx ExamplePwMgr.cmx
 
 ExamplePwMgr.cmx ExamplePwMgr.cmo ExamplePwMgr.cmi ExamplePwMgrRuntime.cmo ExamplePwMgrRuntime.cmx: ExamplePwMgr.vo
 
@@ -31,6 +33,8 @@ pwmgr: big.cmx Runtime.cmx ExamplePwMgr.cmx ExamplePwMgrRuntime.cmx
 ExamplePwMgrWithSSBFull.cmo : big.cmo ExamplePwMgrWithSSBFull.cmi
 ExamplePwMgrWithSSBFull.cmx : big.cmx ExamplePwMgrWithSSBFull.cmi
 ExamplePwMgrWithSSBFull.cmi : big.cmo
+ExamplePwMgrWithSSBFullRuntime.cmo : Runtime.cmo ExamplePwMgrWithSSBFull.cmi
+ExamplePwMgrWithSSBFullRuntime.cmx : Runtime.cmx ExamplePwMgrWithSSBFull.cmx
 
 ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFull.cmo ExamplePwMgrWithSSBFull.cmi ExamplePwMgrWithSSBFullRuntime.cmo ExamplePwMgrWithSSBFullRuntime.cmx: ExamplePwMgrWithSSBFull.vo
 
