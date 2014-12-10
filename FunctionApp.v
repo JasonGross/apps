@@ -17,26 +17,24 @@ Arguments step : clear implicits.
 
 Section stackProcess.
 
-  Context {message : Type}.
   Context {input : Type}.
   Context {world : Type}.
 
   Inductive stackWorld :=
   | stackDone : stackWorld
-  | stackPush : message -> action stackWorld
+  | stackPush : input -> action stackWorld
   | stackLift : action world -> action stackWorld.
 
-  Definition stackInput := (message + input)%type.
-  Definition stackProcess := process stackInput stackWorld.
-  Definition stackStep := step stackInput stackWorld.
+  Definition stackProcess := process input stackWorld.
+  Definition stackStep := step input stackWorld.
 
-  Definition stackTransition (m : stackInput) (pf : stackStep) :=
+  Definition stackTransition (m : input) (pf : stackStep) :=
     (fst (pf m) stackDone, snd (pf m)).
 
   Inductive emptiesStack : stackWorld * stackProcess -> stackProcess -> Prop :=
   | emptiesStackDone p : emptiesStack (stackDone, p) p
   | emptiesStackPush m sw pf p2 p3 :
-      emptiesStack (stackTransition (inl m) pf) p2 ->
+      emptiesStack (stackTransition m pf) p2 ->
       emptiesStack (sw, p2) p3 ->
       emptiesStack (stackPush m sw, Step pf) p3
   | emptiesStackLift a sw p p2 :
@@ -46,15 +44,15 @@ Section stackProcess.
   CoInductive emptiesStackForever : stackProcess -> Prop :=
   | emptiesStackStep pf:
       (forall (i : input), exists p',
-         emptiesStack (stackTransition (inr i) pf) p' /\
+         emptiesStack (stackTransition i pf) p' /\
          emptiesStackForever p') ->
       emptiesStackForever (Step pf).
 
   Inductive stepStackProcessTerminates : stackWorld * stackProcess -> Prop :=
   | stepStackProcessDone p : stepStackProcessTerminates (stackDone, p)
   | stepStackProcessPush m sw pf p2 :
-      stepStackProcessTerminates (stackTransition (inl m) pf) ->
-      emptiesStack (stackTransition (inl m) pf) p2 ->
+      stepStackProcessTerminates (stackTransition m pf) ->
+      emptiesStack (stackTransition m pf) p2 ->
       stepStackProcessTerminates (sw, p2) ->
       stepStackProcessTerminates (stackPush m sw, Step pf)
   | stepStackProcessLift a sw p p2 :
@@ -84,7 +82,7 @@ Section stackProcess.
   }
   {
     destruct p as [pf].
-    pose (sap1 := pf (inl m)).
+    pose (sap1 := pf m).
     pose (sw := fst sap1 stackDone).
     assert (stepStackProcessTerminates (sw, snd sap1)) as e1 by (inversion h; assumption).
     destruct (stepStackProcess (sw, snd sap1) e1) as [a2 [p2 [e2 u2]]].
@@ -131,7 +129,7 @@ Section stackProcess.
   Proof.
     refine (Step (fun i =>
                     match p as p return emptiesStackForever p -> _ with
-                      | Step pf => fun h' => let sap1 := pf (inr i) in
+                      | Step pf => fun h' => let sap1 := pf i in
                                              let sw := fst sap1 stackDone in
                                              let stepped := stepStackProcess (sw, snd sap1) _ in
                                              (fst stepped, runStackProcess (proj1_sig (snd stepped)) _)
