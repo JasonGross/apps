@@ -166,6 +166,8 @@ Module MakePwMgr
                => stackLift (sys.(consoleErr) lines)
              | WB.wBad msg
                => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
+             | WB.wFatalError msg
+               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
            end).
 
     Definition

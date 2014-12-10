@@ -17,9 +17,13 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
 
          [wBad] is an event that should never be fired.  It should
          probably be hooked into a loop, and shown not to exist via
-         the termination proof. *)
+         the termination proof.
+
+         [wFatalError] is a state that's possible, but should kill the
+         program. *)
     Inductive wOutput :=
     | wConsoleErr (lines : string)
+    | wFatalError (lines : string)
     | wBad (msg : string).
 
     Context (world : Type)
@@ -55,14 +59,14 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
                => (handle (wConsoleErr ("Not enough randomness: wanted " ++ (to_string howMuch) ++ ", but got the string: '" ++ given ++ "'")),
                    wLoop st)
              | SSB.ssbEncryptError (SSB.TEB.ebErrorInvalidMasterKey key pf)
-               => (handle (wBad ("Invalid Master Key in encryption box: " ++ key)),
+               => (handle (wFatalError ("Invalid Master Key: " ++ key)),
                    wLoop st)
              | SSB.ssbEncryptError SSB.TEB.ebErrorNoMasterKey
                (* is this [wBad], or just [wConsoleErr]? *)
                => (handle (wBad "No Master Key in encryption box"),
                    wLoop st)
              | SSB.ssbDecryptError (SSB.TDB.dbErrorInvalidMasterKey key pf)
-               => (handle (wBad ("Invalid Master Key in decryption box: " ++ key)),
+               => (handle (wFatalError ("Invalid Master Key: " ++ key)),
                    wLoop st)
              | SSB.ssbDecryptError SSB.TDB.dbErrorNoMasterKey
                (* is this [wBad], or just [wConsoleErr]? *)
