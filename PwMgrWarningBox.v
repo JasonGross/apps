@@ -36,21 +36,23 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
     Definition emit (body : string) : action world
       := handle (wConsoleErr ("WARNING: " ++ body)).
 
-    Definition debug (component body : string) : action world
-      := handle (wConsoleErr ("DEBUG (" ++ component ++ "): " ++ body)).
+    Definition debugMsg (debug : N) (component body : string) (level : N) : action world
+      := if (level <=? debug)%N
+         then handle (wConsoleErr ("DEBUG (" ++ component ++ "): " ++ body))
+         else id.
 
     Definition labelTBStateTransition {T} `{Serializable T} (old new : TrustedTickBox.TickBoxPreState T) (ev : TrustedTickBox.tbInput T)
     : string
       := "from" ++ newlineS ++ "  " ++ to_string old ++ newlineS ++ "to (" ++ to_string ev ++ ")" ++ newlineS ++ "  " ++ to_string new.
 
-    Definition emitTB {T} `{Serializable T} (ev : tbWarningOutput T) (component : string) : action world
+    Definition emitTB {T} `{Serializable T} (debug : N) (ev : tbWarningOutput T) (component : string) : action world
       := let pre := ("In component '" ++ component ++ "', ") in
          match ev with
            | tbWarnNoDataReady => handle (wBad (pre ++ "data was not ready to send"))
            | tbWarnTicksTooInfrequent ticks => emit (pre ++ "tick starvation is occuring: " ++ to_string ticks)
            | tbWarnInvalidWaitBeforeUpdateInterval n => handle (wBad (pre ++ "invalid wait"))
            | tbWarnInvalidEvent st ev' => handle (wBad (pre ++ "invalid event"))
-           | tbDebugStateTransition old new ev' => debug component (labelTBStateTransition (T := T) old new ev')
+           | tbDebugStateTransition old new ev' => debugMsg debug component (labelTBStateTransition (T := T) old new ev') 3
          end.
 
     Definition wLoopBody (wLoop : N -> process wInput world) (debug : N)
@@ -58,9 +60,9 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
       := fun i =>
            match i with
              | SSB.ssbGetUpdateWarning ev
-               => (emitTB ev "Get Update Box", wLoop debug)
+               => (emitTB debug ev "Get Update Box", wLoop debug)
              | SSB.ssbCASWarning ev
-               => (emitTB ev "Compare And Set Box", wLoop debug)
+               => (emitTB debug ev "Compare And Set Box", wLoop debug)
              | SSB.ssbWarningPushBeforePull
                => (emit "Cannot do a server-compare-and-swap before obtaining server's current state",
                    wLoop debug)
