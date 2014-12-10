@@ -163,11 +163,9 @@ Module MakePwMgr
         (fun i =>
            match i with
              | WB.wConsoleErr lines
-               (* TODO: to stderr *)
-               => stackLift (sys.(consoleOut) lines)
+               => stackLift (sys.(consoleErr) lines)
              | WB.wBad msg
-               (* TODO: to stderr *)
-               => stackLift (sys.(consoleOut) msg ∘ sys.(exit) 255)
+               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
            end).
 
     Definition

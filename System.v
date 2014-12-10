@@ -19,6 +19,7 @@ Section systemActions.
   Context {world : Type}.
   Record systemActions :=
     {
+      consoleErr : string -> action world;
       consoleIn : (string -> input) -> action world;
       consoleOut : string -> action world;
       exit : N -> action world;

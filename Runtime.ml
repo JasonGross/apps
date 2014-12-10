@@ -17,6 +17,7 @@ module type APPLICATION =
       }
 
     type ('input, 'world) systemActions = {
+        consoleErr : char list -> 'world action;
         consoleIn : (char list -> 'input) -> 'world action;
         consoleOut : char list -> 'world action;
         exit : Big.big_int -> 'world action;
@@ -80,6 +81,11 @@ module Main(P : APPLICATION) : MAIN = struct
     | P.Step f -> f
 
   let sys : (P.input, 'a) P.systemActions = {
+
+    P.consoleErr = begin fun s next send ->
+      prerr_endline (ExtString.String.implode s);
+      next send
+    end;
 
     P.consoleIn = begin fun cb next send ->
       let e = Uq_io.input_line_e (`Buffer_in stdin_buf) in
