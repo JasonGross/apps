@@ -359,18 +359,20 @@ for field0, ty0 in fields:
            | inr (tbTick ticksSinceLastTbTick), HaveData ticks data publishesSinceLastChange
              => let ticks' := ticksSinceLastTbTick + ticks in
                 let st' := set_curData st (HaveData ticks' data publishesSinceLastChange) in
-                let publishesSinceLastChange' := match publishesSinceLastChange with
-                                                   | None => 0
-                                                   | Some n => n + 1
-                                                 end in
-                let actions := (inr (tbPublishUpdate data))::nil in
-                let actions := (if ticksTooCoarse ticks' st'
-                                then (inl (tbWarnTicksTooInfrequent ticks'))::actions
-                                else actions) in
-                (actions,
-                 (if enoughTransmissions publishesSinceLastChange' st'
-                  then (set_curData st' (NoData (ticksMod ticks' st')))
-                  else (set_curData st' (WaitingOnTicks (ticksMod ticks' st') (Some publishesSinceLastChange')))))
+                if readyToTransmit ticks' st'
+                then let publishesSinceLastChange' := match publishesSinceLastChange with
+                                                        | None => 0
+                                                        | Some n => n + 1
+                                                      end in
+                     let actions := (inr (tbPublishUpdate data))::nil in
+                     let actions := (if ticksTooCoarse ticks' st'
+                                     then (inl (tbWarnTicksTooInfrequent ticks'))::actions
+                                     else actions) in
+                     (actions,
+                      (if enoughTransmissions publishesSinceLastChange' st'
+                       then (set_curData st' (NoData (ticksMod ticks' st')))
+                       else (set_curData st' (WaitingOnTicks (ticksMod ticks' st') (Some publishesSinceLastChange')))))
+                else (nil, st')
 
            | inr (tbTick ticksSinceLastTick), WaitingOnTicks ticks publishesSinceLastChange
              => let ticks' := ticksSinceLastTick + ticks in

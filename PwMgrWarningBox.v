@@ -1,6 +1,7 @@
 (** * A Box to emit warnings for the PWMgr *)
-Require Import Coq.Program.Program Coq.Strings.String.
+Require Import Coq.NArith.BinNat Coq.Program.Program Coq.Strings.String.
 Require Import FunctionApp TrustedServerSyncBox EncryptionInterface TrustedTickBox PrefixSerializable.
+Require Import TrustedTickBoxPrefixSerializable.
 
 Local Open Scope string_scope.
 
@@ -29,61 +30,69 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
     Context (world : Type)
             (handle : wOutput -> action world).
 
-    (*efinition newline := "010"%char.*)
+    Definition newline := "010"%char.
+    Definition newlineS := String newline "".
 
     Definition emit (body : string) : action world
       := handle (wConsoleErr ("WARNING: " ++ body)).
 
-    Definition emitTB {T} (ev : tbWarningOutput T) (component : string) : action world
+    Definition debugMsg (debug : N) (component body : string) (level : N) : action world
+      := if (level <=? debug)%N
+         then handle (wConsoleErr ("DEBUG (" ++ component ++ "): " ++ body))
+         else id.
+
+    Definition labelTBStateTransition {T} `{Serializable T} (old new : TrustedTickBox.TickBoxPreState T) (ev : TrustedTickBox.tbInput T)
+    : string
+      := "from" ++ newlineS ++ "  " ++ to_string old ++ newlineS ++ "to (" ++ to_string ev ++ ")" ++ newlineS ++ "  " ++ to_string new.
+
+    Definition emitTB {T} `{Serializable T} (debug : N) (ev : tbWarningOutput T) (component : string) : action world
       := let pre := ("In component '" ++ component ++ "', ") in
          match ev with
            | tbWarnNoDataReady => handle (wBad (pre ++ "data was not ready to send"))
            | tbWarnTicksTooInfrequent ticks => emit (pre ++ "tick starvation is occuring: " ++ to_string ticks)
            | tbWarnInvalidWaitBeforeUpdateInterval n => handle (wBad (pre ++ "invalid wait"))
            | tbWarnInvalidEvent st ev' => handle (wBad (pre ++ "invalid event"))
-           | tbDebugStateTransition old new ev' => id
+           | tbDebugStateTransition old new ev' => debugMsg debug component (labelTBStateTransition (T := T) old new ev') 3
          end.
 
-    Definition wLoopBody (wLoop : unit -> process wInput world) (st : unit)
+    Definition wLoopBody (wLoop : N -> process wInput world) (debug : N)
     : wInput -> action world * process wInput world
       := fun i =>
            match i with
              | SSB.ssbGetUpdateWarning ev
-               => (emitTB ev "Get Update Box", wLoop st)
+               => (emitTB debug ev "Get Update Box", wLoop debug)
              | SSB.ssbCASWarning ev
-               => (emitTB ev "Compare And Set Box", wLoop st)
+               => (emitTB debug ev "Compare And Set Box", wLoop debug)
              | SSB.ssbWarningPushBeforePull
                => (emit "Cannot do a server-compare-and-swap before obtaining server's current state",
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbEncryptError (SSB.TEB.ebErrorNotEnoughRandomness howMuch given)
                (* we should use a better [nat -> string] here, that isn't binary *)
                => (handle (wConsoleErr ("Not enough randomness: wanted " ++ (to_string howMuch) ++ ", but got the string: '" ++ given ++ "'")),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbEncryptError (SSB.TEB.ebErrorInvalidMasterKey key pf)
                => (handle (wFatalError ("Invalid Master Key: " ++ key)),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbEncryptError SSB.TEB.ebErrorNoMasterKey
                (* is this [wBad], or just [wConsoleErr]? *)
                => (handle (wBad "No Master Key in encryption box"),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbDecryptError (SSB.TDB.dbErrorInvalidMasterKey key pf)
                => (handle (wFatalError ("Invalid Master Key: " ++ key)),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbDecryptError SSB.TDB.dbErrorNoMasterKey
                (* is this [wBad], or just [wConsoleErr]? *)
                => (handle (wBad "No Master Key in decryption box"),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbDecryptError (SSB.TDB.dbErrorInvalidData data tt)
                => (handle (wConsoleErr ("Server got corrupted - encrypted data recieved is: " ++ data)),
-                   wLoop st)
+                   wLoop debug)
              | SSB.ssbWarningInvalidTransition ev' st'
-               => (handle (wBad "Server Sync Box invalid transition"), wLoop st)
+               => (handle (wBad "Server Sync Box invalid transition"), wLoop debug)
            end.
 
-    CoFixpoint wLoop (st : unit) :=
-      Step (wLoopBody wLoop st).
-
-    Definition warningBox := wLoop tt.
+    CoFixpoint warningBox (debug : N) :=
+      Step (wLoopBody warningBox debug).
 
   End warnings.
 End PwMgrWarningBox.

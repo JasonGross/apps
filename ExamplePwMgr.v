@@ -153,32 +153,30 @@ Section pwMgr.
 
   Inductive input :=
   | pwMgrConsoleIn : string -> input
-  | pwMgrNetInput : netInput -> input.
+  | pwMgrNetInput : netInput -> input
+  | pwMgrEncrypt : string -> input
+  | pwMgrDecrypt : string -> input.
 
   Context (world : Type).
   Context (sys : systemActions input world).
 
-  Inductive pwMgrMessage :=
-  | pwMgrEncrypt : string -> pwMgrMessage
-  | pwMgrDecrypt : string -> pwMgrMessage.
-
-  Definition pwMgrLoopBody pwMgrLoop ui net : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
+  Definition pwMgrLoopBody pwMgrLoop ui net : input -> action (stackWorld input world) * stackProcess input world :=
     fun i =>
       match i with
-        | inl (pwMgrEncrypt s) =>
+        | pwMgrEncrypt s =>
           (* TODO: crypto *)
           let (a, net') := getStep net (netEncrypted s) in (a, pwMgrLoop ui net')
-        | inl (pwMgrDecrypt s) =>
+        | pwMgrDecrypt s =>
           (* TODO: crypto *)
           let (a, ui') := getStep ui (uiDecrypted s) in (a, pwMgrLoop ui' net)
-        | inr (pwMgrConsoleIn s) =>
+        | pwMgrConsoleIn s =>
           let (a, ui') := getStep ui (uiConsoleIn s) in
           (fun w => a (stackLift (consoleIn sys pwMgrConsoleIn) w), pwMgrLoop ui' net)
-        | inr (pwMgrNetInput i') =>
+        | pwMgrNetInput i' =>
           let (a, net') := getStep net i' in (a, pwMgrLoop ui net')
       end.
 
-  CoFixpoint pwMgrLoop ui net : stackProcess pwMgrMessage input world :=
+  CoFixpoint pwMgrLoop ui net : stackProcess input world :=
     Step (pwMgrLoopBody pwMgrLoop ui net).
 
   Definition
@@ -205,7 +203,7 @@ Section pwMgr.
 
   Definition
     mkPwMgrStack ui net :
-    stackProcess pwMgrMessage input world :=
+    stackProcess input world :=
     pwMgrLoop (wrap_ui ui) (wrap_net net).
 
   Definition pwMgrStack := mkPwMgrStack ui net.

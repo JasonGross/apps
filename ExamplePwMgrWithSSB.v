@@ -94,51 +94,56 @@ Module MakePwMgr
   Section pwMgr.
 
     Inductive input :=
+    | pwMgrFatal (msg : string)
+    | pwMgrConfigure (debug : N)
     | pwMgrInit (key : string)
     | pwMgrConsoleIn (line : string)
     | pwMgrNetInput (response : netInput)
     | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string)
     | pwWakeUp
-    | pwClocksGot (_ : N).
-
-    Context (world : Type).
-    Context (sys : systemActions input world).
-
-    Inductive pwMgrMessage :=
+    | pwClocksGot (_ : N)
     | pwUI (msg : UI.uiInput)
     | pwW (msg : WB.wInput)
     | pwSSB (msg : SSB.ssbInput)
     | pwNET (msg : netInput).
 
+    Context (world : Type).
+    Context (sys : systemActions input world).
+
     Definition one_second := 1000000000%N.
 
+    Definition abort msg := sys.(consoleErr) msg ∘ sys.(exit) 255.
+    CoFixpoint hang {input world} := Step (fun (_ : input) => (@id world, hang)).
+
     Definition pwMgrLoopBody pwMgrLoop ssb wb ui net
-    : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
+    : input -> action (stackWorld input world) * stackProcess input world :=
       fun i =>
         match i with
-          | inr (pwMgrInit key) => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net)
-          | inr (pwMgrConsoleIn s) =>
+          | pwMgrFatal msg => (stackLift (abort msg), hang)
+          | pwMgrConfigure _ => (stackLift (abort "UNEXPECTED INPUT"), hang)
+          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net)
+          | pwMgrConsoleIn s =>
             let (a, ui') := getStep ui (UI.uiConsoleIn s) in
             (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net)
-          | inr (pwMgrNetInput i') =>
+          | pwMgrNetInput i' =>
             let (a, net') := getStep net i' in
             (a, pwMgrLoop ssb wb ui net')
-          | inr (pwMgrGotRandomness key randomness) =>
+          | pwMgrGotRandomness key randomness =>
             let (a, ssb') := getStep ssb (inr (SSB.ssbSystemRandomness randomness key) : SSB.ssbInput) in
             (a, pwMgrLoop ssb' wb ui net)
-          | inr pwWakeUp =>
+          | pwWakeUp =>
             let (a, ssb') := getStep ssb (inr SSB.ssbWakeUp : SSB.ssbInput) in
             (a, pwMgrLoop ssb' wb ui net)
-          | inr (pwClocksGot n) =>
+          | pwClocksGot n =>
             let (a, ssb') := getStep ssb (inr (SSB.ssbClocksGot n) : SSB.ssbInput) in
             (a, pwMgrLoop ssb' wb ui net)
-          | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
-          | inl (pwUI ev)  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
-          | inl (pwW ev)   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
-          | inl (pwSSB ev) => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net)
+          | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
+          | pwUI ev  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
+          | pwW ev   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
+          | pwSSB ev => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net)
         end.
 
-    CoFixpoint pwMgrLoop ssb wb ui net : stackProcess pwMgrMessage input world :=
+    CoFixpoint pwMgrLoop ssb wb ui net : stackProcess input world :=
       Step (pwMgrLoopBody pwMgrLoop ssb wb ui net).
 
     Definition
@@ -164,15 +169,15 @@ Module MakePwMgr
          forall {world'},
            (WB.wOutput -> action world') ->
            process WB.wInput world') :=
-      wb (world' := stackWorld pwMgrMessage world)
+      wb (world' := stackWorld input world)
         (fun i =>
            match i with
              | WB.wConsoleErr lines
                => stackLift (sys.(consoleErr) lines)
              | WB.wBad msg
-               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
+               => stackLift (abort msg)
              | WB.wFatalError msg
-               => stackLift (sys.(consoleErr) msg ∘ sys.(exit) 255)
+               => stackLift (abort msg)
            end).
 
     Definition
@@ -216,13 +221,13 @@ Module MakePwMgr
 
     Definition
       mkPwMgrStack ssb wb ui net :
-      stackProcess pwMgrMessage input world :=
+      stackProcess input world :=
       pwMgrLoop (wrap_ssb ssb) (wrap_wb wb) (wrap_ui ui) (wrap_net net).
 
-    Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string)
+    Definition pwMgrStack (initStore : EncryptionStringDataTypes.rawDataT) (storageId : string) (debug : N)
       := mkPwMgrStack
            (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
-           WB.warningBox
+           (fun world handle => WB.warningBox world handle debug)
            UI.ui
            (fun world handle => net world handle storageId).
 
@@ -264,11 +269,11 @@ Module MakePwMgr
       emptiesStackForever_t pwMgrGood' input (@pwMgrLoop_eta) (@pwMgrLoop) tac.
       Admitted.
 
-    Theorem pwMgrGood initStore storageId :
+    Theorem pwMgrGood initStore storageId (debug : N) :
       emptiesStackForever
         (mkPwMgrStack
            (SSB.serverSyncBox (fun s1 s2 => if string_dec s1 s2 then true else false) initStore)
-           WB.warningBox
+           (fun world handle => WB.warningBox world handle debug)
            UI.ui
            (fun world handle => net world handle storageId)).
     Proof.
@@ -281,20 +286,49 @@ Module MakePwMgr
     (** We should do something sane here, not use "foo" unconditionally. *)
     Definition storageId := "foo".
 
-    CoFixpoint getMasterKeyLoop :=
+    CoFixpoint getMasterKeyLoop debug :=
       Step (fun i =>
               match i with
                 | pwMgrConsoleIn key =>
-                  match runStackProcess (pwMgrStack initStore storageId) (pwMgrGood initStore storageId) with
+                  match runStackProcess (pwMgrStack initStore storageId debug) (pwMgrGood initStore storageId debug) with
                     | Step f =>
                       let (a, p) := f (pwMgrInit key) in
                       (consoleIn sys pwMgrConsoleIn ∘ a, p)
                   end
-                | _ => (consoleErr sys "UNEXPECTED INPUT", getMasterKeyLoop)
+                | _ => (abort "UNEXPECTED INPUT", hang)
               end).
 
-    Definition proc
-      := (consoleOut sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop).
+    Definition getMasterKey debug
+      := (consoleOut sys "Enter your master key:" ∘ consoleIn sys pwMgrConsoleIn, getMasterKeyLoop debug).
+
+    Fixpoint parseFlag argv0 debug flag next :=
+      match flag with
+        | EmptyString => next debug
+        | (String "d" flag') => parseFlag argv0 (debug + 1)%N flag' next
+        | _ => pwMgrFatal ("usage: " ++ argv0)
+      end.
+
+    Fixpoint parseArgv' argv0 argv debug :=
+      match argv with
+        | nil => pwMgrConfigure debug
+        | (String "-" flag) :: argv' => parseFlag argv0 debug flag (parseArgv' argv0 argv')
+        | _ => pwMgrFatal ("usage: " ++ argv0 ++ " [-d...]")
+      end.
+
+    Definition parseArgv debug argv :=
+      match argv with
+        | nil => pwMgrFatal "EMPTY ARGV"
+        | argv0 :: argv' => parseArgv' argv0 argv' debug
+      end.
+
+    Definition proc : action world * process input world :=
+      (sys.(getArgv) (parseArgv 0),
+       Step (fun i =>
+               match i with
+                 | pwMgrFatal msg => (abort msg, hang)
+                 | pwMgrConfigure debug => getMasterKey debug
+                 | _ => (abort "UNEXPECTED INPUT", hang)
+               end)).
 
   End pwMgr.
 End MakePwMgr.
