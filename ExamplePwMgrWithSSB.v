@@ -239,7 +239,7 @@ Module MakePwMgr
     Qed.
 
     CoFixpoint pwMgrGood' : 
-      forall ssbState uiState storageId,
+      forall ssbState uiState debug storageId,
         emptiesStackForever
           (Step
              (pwMgrLoopBody 
@@ -248,7 +248,8 @@ Module MakePwMgr
                    (SSB.serverSyncBox
                       (fun s1 s2 : EncryptionStringDataTypes.rawDataT =>
                          if string_dec s1 s2 then true else false) ssbState))
-                (wrap_wb WB.warningBox) (wrap_ui (fun world handle => @UI.uiLoop world handle uiState))
+                (wrap_wb (fun world handle => @WB.warningBox world handle debug)) 
+                (wrap_ui (fun world handle => @UI.uiLoop world handle uiState))
                 (wrap_net
                    (fun (world : Type) (handle : netOutput -> action world) =>
                       net world handle storageId)))).

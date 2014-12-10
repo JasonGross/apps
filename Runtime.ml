@@ -57,7 +57,7 @@ let urandom_buf =
 
 let pipeline = new Http_client.pipeline;;
 
-let ctx = Ssl.create_context Ssl.TLSv1_2 Ssl.Client_context in
+let ctx = Ssl.create_context Ssl.TLSv1 Ssl.Client_context in
 let tct = Https_client.https_transport_channel_type ctx in
 pipeline # configure_transport Http_client.https_cb_id tct;;
 
