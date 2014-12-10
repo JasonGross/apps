@@ -41,12 +41,12 @@ We have implemented a framework in the Coq proof assistant for allow modular dev
 {%
 \def\untrusted#1{\save[].[#1]*[F]\frm{}\restore}
 \def\trusted#1{\save[].[#1]*[F=]\frm{}\restore}
-An application consists of some trusted boxes and some untrusted boxes, which communicate with each other via asynchronous message passing.  The trusted code base consists of the code implementing the trusted boxes (for example, encryption algorithms), and a top-level ``wiring diagram'' which enforces modularity.  For example, a password manager application might have the following simplified wiring diagram, with $\xymatrix{*++[F=]{\txt{\textbf{trusted}}}}$ and $\xymatrix{*++[F-]{\txt{untrusted}}}$ boxes:
+An application consists of some trusted boxes and some untrusted boxes, which communicate with each other via asynchronous message passing.  The trusted code base consists of the code implementing the trusted boxes (for example, encryption algorithms), and a top-level ``wiring diagram'' which enforces modularity.  For example, a password manager application might want to enforce the policy that the user's passwords cannot leak to the network unencrypted, and might want to enforce this restriction even in the presence of untrusted user-interface and network-communication implementations.  Such an application might have the following simplified wiring diagram, with $\xymatrix{*++[F=]{\txt{\textbf{trusted}}}}$ and $\xymatrix{*++[F-]{\txt{untrusted}}}$ boxes:
 
 \noindent
 \[
 \xymatrix@-0.5pc{
-&\untrusted{ddddddrrrr} \\
+&\trusted{ddddddrrrr} \\
 &&\untrusted{dddd}\txt{\phantom{UI Box}}& \txt{\phantom{Encrypt Box}} & \untrusted{dddd}\txt{\phantom{Net Box}}&& \\
 &&\txt{\phantom{UI Box}}\ar[r]& \trusted{}\txt{\textbf{Encrypt Box}}\ar[r]     &                 \txt{\phantom{Net Box}}\ar@{=>}[rrr]^>{\txt{Network Out}}&&& \\
 \ar@{=>}[rr]^<{\txt{User In}}&&\txt{UI Box}&  \ar[u]\ar[d]\trusted{}\txt{\textbf{Secret Key}}     &                 \txt{Net Box}& \\
@@ -60,9 +60,9 @@ An application consists of some trusted boxes and some untrusted boxes, which co
 \subsection{Enforced Modularity and Parametricity}
 In the example above, the only path from user input to network output goes through the encryption box.  Thus this application, by construction, can leak no unencrypted information from the user to the network via message content.  By setting up the encryption box to send outgoing messages at given predefined times, we can also nearly prevent information leakage via timing side-channels (see \autoref{sec:timing-details} for more details).
 
-More precisely, this enforced modularity is a form of parametricity.  Because the Net Box must be parametric in the input it receives from the Encrypt Box, it should not be able to deduce anything about the input to the Encrypt Box, and thus we don't need to trust its output.  (Of course, we might insert other trusted components, such as one that prevents the Net Box from contacting most servers.  Because these checks are inserted in the source code, an optimizing compiler could elide checks which are obviously true.)
+More precisely, this enforced modularity is a form of parametricity.  Because the Net Box must be parametric in the input it receives from the Encrypt Box, and it must be parametric in the secret key (which it has no access to) it should not be able to deduce anything about the input to the Encrypt Box, and thus we don't need to trust its output.  (Of course, we might insert other trusted components, such as one that prevents the Net Box from contacting most servers.  Because these checks are inserted in the source code, an optimizing compiler could elide checks which are obviously true.)
 
-Furthermore, the top-level wiring diagram is a kind of source-level sandboxing:  All implementations are pure, and communicate with the outside world via OCaml shims mediated by the top-level wiring diagram.  Therefore, if there is no wire connecting an untrusted box with a system call, that box cannot make use of that system call.
+Furthermore, the top-level wiring diagram is a kind of source-level sandboxing:  All implementations are pure, and communicate with the outside world via OCaml shims mediated by the top-level wiring diagram.  Therefore, if there is no wire connecting an untrusted box with a system call, that box cannot make use of that system call.\footnote{This is technically not true in our current version.  A malicious box can include a command like \texttt{Extract Constant evil $\Rightarrow$ "Unix.system".}~and thus force extraction of an innocuous function that breaks the sandbox.  We plan to eventually bypass the extraction mechanism in favor of a verified compilation pipeline down to assembly, perhaps through Fiat, Facade, Cito, and Bedrock, which will not have this exploit.}
 
 \section{High-Level Implementation}
 \subsection{Proof of Concept: Password Manager Application}
