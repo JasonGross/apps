@@ -2,7 +2,7 @@ Require Import Coq.Strings.Ascii Coq.Lists.List Coq.Program.Basics Coq.Program.P
 Require Import Coq.NArith.BinNat.
 Require Import SerializableMergableFMapInterface StringKey PrefixSerializable.
 Require Import System FunctionApp FunctionAppLemmas FunctionAppTactics.
-Require Import PwMgrUI PwMgrWarningBox PwMgrNet TrustedServerSyncBox EncryptionInterface.
+Require Import PwMgrUI PwMgrWarningBox PwMgrNet TrustedServerSyncBox EncryptionInterface TickGenerator.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -101,9 +101,7 @@ Module MakePwMgr
     | pwW (msg : WB.wInput)
     | pwSSB (msg : SSB.ssbInput)
     | pwNET (msg : netInput)
-    | pwWakeUp
-    | pwClocksGot (_ : N)
-    | pwTick (_ : N).
+    | pwTG (msg : tickGInput).
 
     Context (world : Type).
     Context (sys : systemActions input world).
@@ -113,30 +111,20 @@ Module MakePwMgr
     Definition abort msg := sys.(consoleErr) msg ∘ sys.(exit) 255.
     CoFixpoint hang {input world} := Step (fun (_ : input) => (@id world, hang)).
 
-    Require Import TickGenerator.
-
     Definition pwMgrLoopBody pwMgrLoop ssb wb ui net tickG
     : input -> action (stackWorld input world) * stackProcess input world :=
       fun i =>
         match i with
           | pwMgrFatal msg => (stackLift (abort msg), hang)
           | pwMgrConfigure _ => (stackLift (abort "UNEXPECTED INPUT"), hang)
-          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net tickG)
+          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second (pwTG TGWakeUp)), pwMgrLoop ssb wb ui net tickG)
           | pwMgrConsoleIn s =>
             (stackPush (pwUI (UI.uiConsoleIn s)) ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui net tickG)
           | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net' tickG)
           | pwUI ev  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net tickG)
           | pwW ev   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net tickG)
           | pwSSB ev => let (a, ssb') := getStep ssb ev in (a, pwMgrLoop ssb' wb ui net tickG)
-          | pwWakeUp =>
-            let (a, tickG') := getStep tickG TGWakeUp in
-            (a, pwMgrLoop ssb wb ui net tickG')
-          | pwClocksGot n =>
-            let (a, tickG') := getStep tickG (TGClocksGot n) in
-            (a, pwMgrLoop ssb wb ui net tickG')
-          | pwTick n =>
-            let (a, ssb') := getStep ssb (inr (SSB.ssbTick n) : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net tickG)
+          | pwTG ev  => let (a, tickG') := getStep tickG ev in (a, pwMgrLoop ssb wb ui net tickG')
         end.
 
     CoFixpoint pwMgrLoop ssb wb ui net tickG : stackProcess input world :=
@@ -220,9 +208,9 @@ Module MakePwMgr
       tickG (fun i =>
              match i with
                | TGSleepNanosecs n
-                 => stackLift (sys.(sleepNanosecs) n pwWakeUp)
+                 => stackLift (sys.(sleepNanosecs) n (pwTG TGWakeUp))
                | TGGetNanosecs
-                 => stackLift (sys.(getNanosecs) pwClocksGot)
+                 => stackLift (sys.(getNanosecs) (pwTG ∘ TGClocksGot))
                | TGTick n
                  => stackPush (pwSSB (inr (SSB.ssbTick n): SSB.ssbInput))
              end).
