@@ -130,8 +130,7 @@ Module MakePwMgr
 
           (* loop on bad states, spewing warnings (TODO: to stderr) *)
           | inl pwBadState
-            => ((stackLift (sys.(consoleOut) "BAD LOOP"))
-                  ∘ (stackPush pwBadState),
+            => (stackLift (sys.(consoleOut) "BAD LOOP" ∘ sys.(exit) 255),
                 pwMgrLoop ssb wb ui net)
 
           | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
