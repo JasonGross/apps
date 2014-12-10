@@ -9,8 +9,8 @@ Makefile.coq.bak
 *.v.d
 .#*
 .dir-locals.el
-*.ml
 *.mli
+*.ml.d
 
 *.log
 *.out
