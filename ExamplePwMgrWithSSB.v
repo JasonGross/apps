@@ -50,7 +50,8 @@ Module MakePwMgr
 
   Coercion eta_ssbEventInput (a : SSB.ssbEventInput) : WB.SSB.ssbEventInput
     := match a with
-         | SSB.ssbTick addedTickCount             => WB.SSB.ssbTick addedTickCount
+         | SSB.ssbWakeUp                 => WB.SSB.ssbWakeUp
+         | SSB.ssbClocksGot n                 => WB.SSB.ssbClocksGot n
          | SSB.ssbClientGetUpdate                 => WB.SSB.ssbClientGetUpdate
          | SSB.ssbClientSet newD                  => WB.SSB.ssbClientSet newD
          | SSB.ssbServerGotUpdate newE            => WB.SSB.ssbServerGotUpdate newE
@@ -97,7 +98,8 @@ Module MakePwMgr
     | pwMgrConsoleIn (line : string)
     | pwMgrNetInput (response : netInput)
     | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string)
-    | pwTick.
+    | pwWakeUp
+    | pwClocksGot (_ : N).
 
     Context (world : Type).
     Context (sys : systemActions input world).
@@ -114,7 +116,7 @@ Module MakePwMgr
     : @stackInput pwMgrMessage input -> action (stackWorld pwMgrMessage world) * stackProcess pwMgrMessage input world :=
       fun i =>
         match i with
-          | inr (pwMgrInit key) => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwTick), pwMgrLoop ssb wb ui net)
+          | inr (pwMgrInit key) => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net)
           | inr (pwMgrConsoleIn s) =>
             let (a, ui') := getStep ui (UI.uiConsoleIn s) in
             (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net)
@@ -124,11 +126,12 @@ Module MakePwMgr
           | inr (pwMgrGotRandomness key randomness) =>
             let (a, ssb') := getStep ssb (inr (SSB.ssbSystemRandomness randomness key) : SSB.ssbInput) in
             (a, pwMgrLoop ssb' wb ui net)
-          | inr pwTick =>
-            (** TODO: Fix ticks *)
-            let (a, ssb') := getStep ssb (inr (SSB.ssbTick 1) : SSB.ssbInput) in
-            (stackLift (sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
-
+          | inr pwWakeUp =>
+            let (a, ssb') := getStep ssb (inr SSB.ssbWakeUp : SSB.ssbInput) in
+            (a, pwMgrLoop ssb' wb ui net)
+          | inr (pwClocksGot n) =>
+            let (a, ssb') := getStep ssb (inr (SSB.ssbClocksGot n) : SSB.ssbInput) in
+            (a, pwMgrLoop ssb' wb ui net)
           | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
           | inl (pwUI ev)  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
           | inl (pwW ev)   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
@@ -191,6 +194,10 @@ Module MakePwMgr
                => stackPush (pwNET netGetUpdate)
              | inr (SSB.ssbServerCAS cur new)
                => stackPush (pwNET (netCAS cur new))
+             | inr (SSB.ssbSleepNanosecs n)
+               => stackLift (sys.(sleepNanosecs) n pwWakeUp)
+             | inr SSB.ssbGetNanosecs
+               => stackLift (sys.(getNanosecs) pwClocksGot)
            end).
 
     Definition

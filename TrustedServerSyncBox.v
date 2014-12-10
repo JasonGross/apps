@@ -1,6 +1,6 @@
 (** * A box to mirror a server over untrusted channels using encryption while preventing timing side channels (part of TCB) *)
 Require Import Coq.Program.Basics Coq.NArith.NArith Coq.Lists.List.
-Require Import FunctionApp EncryptionInterface TrustedTickBox TrustedEncryptBox TrustedDecryptBox.
+Require Import FunctionApp EncryptionInterface TrustedTickBox TrustedTickBoxWrapper TrustedEncryptBox TrustedDecryptBox.
 Require Import Common.
 
 Local Open Scope list_scope.
@@ -134,11 +134,12 @@ for field0, ty0 in fields:
     | ssbSetMasterKey (key : masterKeyT).
 
     Inductive ssbEventInput :=
-    | ssbTick (addedTickCount : N)
     | ssbClientGetUpdate
     | ssbClientSet (newD : rawDataT)
     | ssbServerGotUpdate (newE : encryptedDataT)
-    | ssbSystemRandomness (randomness : systemRandomnessT) (tag : rawDataT).
+    | ssbSystemRandomness (randomness : systemRandomnessT) (tag : rawDataT)
+    | ssbWakeUp 
+    | ssbClocksGot (_ : N).
 
     Definition ssbInput := (ssbConfigInput + ssbEventInput)%type.
 
@@ -154,7 +155,9 @@ for field0, ty0 in fields:
     | ssbClientGotUpdate (data : rawDataT)
     | ssbServerGetUpdate
     | ssbServerCAS (curE newE : encryptedDataT)
-    | ssbRequestSystemRandomness (howMuch : systemRandomnessHintT) (tag : rawDataT).
+    | ssbRequestSystemRandomness (howMuch : systemRandomnessHintT) (tag : rawDataT)
+    | ssbSleepNanosecs (nanos : N)
+    | ssbGetNanosecs.
 
     Definition ssbOutput := (ssbWarningOutput + ssbEventOutput)%type.
 
@@ -166,8 +169,8 @@ for field0, ty0 in fields:
       {|
         ssbState := {| localStateD := initRawData;
                        remoteStateE := None |};
-        ssbGetUpdateState := TrustedTickBox.initState _;
-        ssbCASState := TrustedTickBox.initState _;
+        ssbGetUpdateState := TrustedTickBoxWrapper.initState _;
+        ssbCASState := TrustedTickBoxWrapper.initState _;
         ssbEncryptState := TEB.initState;
         ssbDecryptState := TDB.initState
       |}.
@@ -178,6 +181,7 @@ for field0, ty0 in fields:
         | _ => progress subst_body
         | _ => intro
         | _ => progress simpl in *
+        | _ => progress subst
         | [ H : appcontext[match ?E with _ => _ end] |- _ ] => (atomic E; destruct E)
         | [ H : Some _ = None |- _ ] => solve [ inversion H ]
         | [ H : None = Some _ |- _ ] => solve [ inversion H ]
@@ -218,6 +222,10 @@ for field0, ty0 in fields:
                         end eq_refl
                    | inr (tbPublishUpdate val)
                      => inr ssbServerGetUpdate::nil
+                   | inr (tbSleepNanosecs n)
+                     => inr (ssbSleepNanosecs n) :: nil
+                   | inr tbGetNanosecs
+                     => inr ssbGetNanosecs :: nil
                  end,
                  set_ssbGetUpdateState st (snd i)));
       handle_eq_false.
@@ -292,6 +300,10 @@ for field0, ty0 in fields:
                                           (st'.(ssbEncryptState))
                                           (ebEncrypt (st.(localStateD)) tt) in
                        handle_ssbEncrypt st' encResult
+                  | inr (tbSleepNanosecs n)
+                    => (inr (ssbSleepNanosecs n) :: nil, st')
+                  | inr tbGetNanosecs
+                    => (inr ssbGetNanosecs :: nil, st')
                 end).
     Defined.
 
@@ -355,17 +367,30 @@ for field0, ty0 in fields:
                                               (dbSetMasterKey _ newKey)) in
                        (ls0 ++ ls1, st1)
 
-                  | inr (ssbTick addedTickCount)
+                  | inr ssbWakeUp
                     => let (ls0, st0) := handle_ssbGetUpdate
                                            st
                                            (tickBoxLoopPreBody
                                               (st.(ssbGetUpdateState))
-                                              (inr (tbTick _ addedTickCount))) in
+                                              (inr (tbWakeUp _))) in
                        let (ls1, st1) := handle_ssbCAS
                                            st0
                                            (tickBoxLoopPreBody
                                               (st0.(ssbCASState))
-                                              (inr (tbTick _ addedTickCount))) in
+                                              (inr (tbWakeUp _))) in
+                       (ls0 ++ ls1, st1)
+
+                  | inr (ssbClocksGot n)
+                    => let (ls0, st0) := handle_ssbGetUpdate
+                                           st
+                                           (tickBoxLoopPreBody
+                                              (st.(ssbGetUpdateState))
+                                              (inr (tbClocksGot _ n))) in
+                       let (ls1, st1) := handle_ssbCAS
+                                           st0
+                                           (tickBoxLoopPreBody
+                                              (st0.(ssbCASState))
+                                              (inr (tbClocksGot _ n))) in
                        (ls0 ++ ls1, st1)
 
                   | inr ssbClientGetUpdate

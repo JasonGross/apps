@@ -40,7 +40,7 @@ Section gateway.
                   GOTick ticks :: nil
                 | None => nil
               end in
-          (actions ++ GOSleep sleep_nanos :: nil, Some new)
+          (GOSleep sleep_nanos :: actions, Some new)
       end.
 
   Context (handle : gatewayOutput -> action world).
