@@ -266,9 +266,9 @@ for field0, ty0 in fields:
 
   Definition initState : TickBoxState :=
     {| curData := NoData 0;
-       publishInterval := 10;
+       publishInterval := 10000000000;
        publishDuration := ∞;
-       waitBeforeUpdateInterval := 5;
+       waitBeforeUpdateInterval := 8000000000;
        publishPrecision := 0 |}.
 
   Definition readyToTransmit (ticks : N) (st : TickBoxState) : bool :=
