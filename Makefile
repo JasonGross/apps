@@ -16,13 +16,23 @@ Makefile.coq: Makefile _CoqProject
 
 all: pwmgr
 
-ExamplePwMgr.cmx ExamplePwMgr.cmo ExamplePwMgrRuntime.cmo ExamplePwMgrRuntime.cmx: ExamplePwMgr.vo
+# we paste in .ml.d and .mli.d files that were generated from .vo
+# files, because we don't want the clean target to depend on .vo files
+ExamplePwMgr.cmo : big.cmo ExamplePwMgr.cmi
+ExamplePwMgr.cmx : big.cmx ExamplePwMgr.cmi
+ExamplePwMgr.cmi : big.cmo
+
+ExamplePwMgr.cmx ExamplePwMgr.cmo ExamplePwMgr.cmi ExamplePwMgrRuntime.cmo ExamplePwMgrRuntime.cmx: ExamplePwMgr.vo
 
 pwmgr: big.cmx Runtime.cmx ExamplePwMgr.cmx ExamplePwMgrRuntime.cmx
 	$(OCAMLFIND) $(CAMLOPTLINK) -linkpkg $(OCAMLPKGS:%=-package %) nums.cmxa $(ZDEBUG) -o $@ $^
 
 
-ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFull.cmo ExamplePwMgrWithSSBFullRuntime.cmo ExamplePwMgrWithSSBFullRuntime.cmx: ExamplePwMgrWithSSBFull.vo
+ExamplePwMgrWithSSBFull.cmo : big.cmo ExamplePwMgrWithSSBFull.cmi
+ExamplePwMgrWithSSBFull.cmx : big.cmx ExamplePwMgrWithSSBFull.cmi
+ExamplePwMgrWithSSBFull.cmi : big.cmo
+
+ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFull.cmo ExamplePwMgrWithSSBFull.cmi ExamplePwMgrWithSSBFullRuntime.cmo ExamplePwMgrWithSSBFullRuntime.cmx: ExamplePwMgrWithSSBFull.vo
 
 all: pwmgr-ssb
 pwmgr-ssb: big.cmx Runtime.cmx ExamplePwMgrWithSSBFull.cmx ExamplePwMgrWithSSBFullRuntime.cmx
