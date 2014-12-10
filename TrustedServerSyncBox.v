@@ -178,6 +178,7 @@ for field0, ty0 in fields:
         | _ => progress subst_body
         | _ => intro
         | _ => progress simpl in *
+        | _ => progress subst
         | [ H : appcontext[match ?E with _ => _ end] |- _ ] => (atomic E; destruct E)
         | [ H : Some _ = None |- _ ] => solve [ inversion H ]
         | [ H : None = Some _ |- _ ] => solve [ inversion H ]
@@ -191,6 +192,8 @@ for field0, ty0 in fields:
         | [ H : Some _ = Some _ |- _ ] => inversion H; clear H
         | [ H : _::_ = _::_ |- _ ] => inversion H; clear H
       end.
+
+    Local Arguments tickBoxLoopPreBody / .
 
     Local Ltac handle_eq_false :=
       match goal with
@@ -214,6 +217,7 @@ for field0, ty0 in fields:
                         match fst upd as u return u = fst upd -> _ with
                           | nil => fun _ => nil
                           | inl warning::nil => fun _ => inl (ssbGetUpdateWarning warning)::nil
+                          | inl warning::inl warning'::nil => fun _ => inl (ssbGetUpdateWarning warning)::inl (ssbGetUpdateWarning warning')::nil
                           | _ => fun H => match (_ H) : False with end
                         end eq_refl
                    | inr (tbPublishUpdate val)
@@ -260,6 +264,7 @@ for field0, ty0 in fields:
                         (match fst upd as u return u = fst upd -> _ with
                            | nil => fun _ => nil
                            | inl warning::nil => fun _ => (inl (ssbCASWarning warning))::nil
+                           | inl warning::inl warning'::nil => fun _ => inl (ssbCASWarning warning)::inl (ssbCASWarning warning')::nil
                            | _ => fun H => match (_ H) : False with end
                          end eq_refl,
                          set_ssbCASState st' (snd upd))

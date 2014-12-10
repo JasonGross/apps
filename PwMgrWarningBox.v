@@ -41,6 +41,7 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
            | tbWarnTicksTooInfrequent ticks => emit (pre ++ "tick starvation is occuring: " ++ to_string ticks)
            | tbWarnInvalidWaitBeforeUpdateInterval n => handle (wBad (pre ++ "invalid wait"))
            | tbWarnInvalidEvent st ev' => handle (wBad (pre ++ "invalid event"))
+           | tbDebugStateTransition old new ev' => id
          end.
 
     Definition wLoopBody (wLoop : unit -> process wInput world) (st : unit)
