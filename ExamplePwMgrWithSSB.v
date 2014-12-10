@@ -119,8 +119,7 @@ Module MakePwMgr
           | pwMgrConfigure _ => (stackLift (abort "UNEXPECTED INPUT"), hang)
           | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second (pwSSB (inr SSB.ssbWakeUp))), pwMgrLoop ssb wb ui net)
           | pwMgrConsoleIn s =>
-            let (a, ui') := getStep ui (UI.uiConsoleIn s) in
-            (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net)
+            (stackPush (pwUI (UI.uiConsoleIn s)) ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui net)
           | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
           | pwUI ev  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
           | pwW ev   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
