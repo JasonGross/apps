@@ -126,7 +126,7 @@ Module MakePwMgr
             (a, pwMgrLoop ssb' wb ui net)
           | inr pwTick =>
             (** TODO: Fix ticks *)
-            let (a, ssb') := getStep ssb (inr (SSB.ssbTick 1) : SSB.ssbInput) in
+            let (a, ssb') := getStep ssb (inr (SSB.ssbTick one_second) : SSB.ssbInput) in
             (stackLift (sys.(sleepNanosecs) one_second pwTick) ∘ a, pwMgrLoop ssb' wb ui net)
 
           | inl (pwNET ev) => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')

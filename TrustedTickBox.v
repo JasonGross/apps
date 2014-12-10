@@ -250,7 +250,7 @@ for field0, ty0 in fields:
 
   Inductive tbWarningOutput :=
   | tbWarnNoDataReady
-  | tbWarnTicksTooInfrequent
+  | tbWarnTicksTooInfrequent (ticks : N)
   | tbWarnInvalidWaitBeforeUpdateInterval (_ : N)
   | tbWarnInvalidEvent (st : TickBoxPreState) (ev : tbEventInput).
 
@@ -269,16 +269,16 @@ for field0, ty0 in fields:
        publishInterval := 10000000000;
        publishDuration := ∞;
        waitBeforeUpdateInterval := 8000000000;
-       publishPrecision := 0 |}.
+       publishPrecision := 1000 |}.
 
   Definition readyToTransmit (ticks : N) (st : TickBoxState) : bool :=
-    ticks >? st.(publishInterval).
+    ticks >=? st.(publishInterval).
 
   Definition readyToGetUpdate (ticks : N) (st : TickBoxState) : bool :=
-    ticks >? st.(waitBeforeUpdateInterval).
+    ticks >=? st.(waitBeforeUpdateInterval).
 
   Definition invalidWaitBeforeUpdateInterval (val : N) (st : TickBoxState) : bool :=
-    val >? st.(publishInterval).
+    val >=? st.(publishInterval).
 
   (** Should we emit a warning about [tbTick] not being called often
       enough? *)
@@ -363,19 +363,19 @@ for field0, ty0 in fields:
                                                  end in
                 let actions := (inr (tbPublishUpdate data))::nil in
                 let actions := (if ticksTooCoarse ticks' st'
-                                then (inl tbWarnTicksTooInfrequent)::actions
+                                then (inl (tbWarnTicksTooInfrequent ticks'))::actions
                                 else actions) in
                 (actions,
                  (if enoughTransmissions publishesSinceLastChange' st'
-                  then (set_curData st (NoData (ticksMod ticks' st')))
-                  else (set_curData st (WaitingOnTicks (ticksMod ticks' st') (Some publishesSinceLastChange')))))
+                  then (set_curData st' (NoData (ticksMod ticks' st')))
+                  else (set_curData st' (WaitingOnTicks (ticksMod ticks' st') (Some publishesSinceLastChange')))))
 
            | inr (tbTick ticksSinceLastTick), WaitingOnTicks ticks publishesSinceLastChange
              => let ticks' := ticksSinceLastTick + ticks in
                 let st_request := set_curData st (WaitingOnData ticks' publishesSinceLastChange) in
                 let st_waiting := set_curData st (WaitingOnTicks ticks' publishesSinceLastChange) in
                 let actions := (if ticksTooCoarseWaitingOnTicks ticks' st
-                                then (inl tbWarnTicksTooInfrequent)::nil
+                                then (inl (tbWarnTicksTooInfrequent ticks'))::nil
                                 else nil) in
                 if readyToGetUpdate ticks' st
                 then ((inr tbRequestDataUpdate)::actions, st_request)

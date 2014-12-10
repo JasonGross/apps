@@ -38,7 +38,7 @@ Module PwMgrWarningBox (Algorithm : EncryptionAlgorithm EncryptionStringDataType
       := let pre := ("In component '" ++ component ++ "', ") in
          match ev with
            | tbWarnNoDataReady => handle (wBad (pre ++ "data was not ready to send"))
-           | tbWarnTicksTooInfrequent => emit (pre ++ "tick starvation is occuring")
+           | tbWarnTicksTooInfrequent ticks => emit (pre ++ "tick starvation is occuring: " ++ to_string ticks)
            | tbWarnInvalidWaitBeforeUpdateInterval n => handle (wBad (pre ++ "invalid wait"))
            | tbWarnInvalidEvent st ev' => handle (wBad (pre ++ "invalid event"))
          end.
