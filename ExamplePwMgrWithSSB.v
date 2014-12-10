@@ -98,10 +98,6 @@ Module MakePwMgr
     | pwMgrConfigure (debug : N)
     | pwMgrInit (key : string)
     | pwMgrConsoleIn (line : string)
-    | pwMgrNetInput (response : netInput)
-    | pwMgrGotRandomness (key : EncryptionStringDataTypes.rawDataT) (randomness : string)
-    | pwWakeUp
-    | pwClocksGot (_ : N)
     | pwUI (msg : UI.uiInput)
     | pwW (msg : WB.wInput)
     | pwSSB (msg : SSB.ssbInput)
@@ -121,22 +117,10 @@ Module MakePwMgr
         match i with
           | pwMgrFatal msg => (stackLift (abort msg), hang)
           | pwMgrConfigure _ => (stackLift (abort "UNEXPECTED INPUT"), hang)
-          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second pwWakeUp), pwMgrLoop ssb wb ui net)
+          | pwMgrInit key => (stackPush (pwSSB (inl (SSB.ssbSetMasterKey key))) ∘ stackPush (pwNET netGetUpdate) ∘ stackLift (sys.(sleepNanosecs) one_second (pwSSB (inr SSB.ssbWakeUp))), pwMgrLoop ssb wb ui net)
           | pwMgrConsoleIn s =>
             let (a, ui') := getStep ui (UI.uiConsoleIn s) in
             (a ∘ stackLift (sys.(consoleIn) pwMgrConsoleIn), pwMgrLoop ssb wb ui' net)
-          | pwMgrNetInput i' =>
-            let (a, net') := getStep net i' in
-            (a, pwMgrLoop ssb wb ui net')
-          | pwMgrGotRandomness key randomness =>
-            let (a, ssb') := getStep ssb (inr (SSB.ssbSystemRandomness randomness key) : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net)
-          | pwWakeUp =>
-            let (a, ssb') := getStep ssb (inr SSB.ssbWakeUp : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net)
-          | pwClocksGot n =>
-            let (a, ssb') := getStep ssb (inr (SSB.ssbClocksGot n) : SSB.ssbInput) in
-            (a, pwMgrLoop ssb' wb ui net)
           | pwNET ev => let (a, net') := getStep net ev in (a, pwMgrLoop ssb wb ui net')
           | pwUI ev  => let (a, ui')  := getStep ui  ev in (a, pwMgrLoop ssb wb ui' net)
           | pwW ev   => let (a, wb')  := getStep wb  ev in (a, pwMgrLoop ssb wb' ui net)
@@ -194,15 +178,15 @@ Module MakePwMgr
              | inr (SSB.ssbClientGotUpdate data)
                => stackPush (pwUI (UI.uiGotUpdate data))
              | inr (SSB.ssbRequestSystemRandomness howMuch tag)
-               => stackLift (sys.(getRandomness) (N.of_nat howMuch) (pwMgrGotRandomness tag))
+               => stackLift (sys.(getRandomness) (N.of_nat howMuch) (pwSSB ∘ inr ∘ SSB.ssbSystemRandomness tag))
              | inr SSB.ssbServerGetUpdate
                => stackPush (pwNET netGetUpdate)
              | inr (SSB.ssbServerCAS cur new)
                => stackPush (pwNET (netCAS cur new))
              | inr (SSB.ssbSleepNanosecs n)
-               => stackLift (sys.(sleepNanosecs) n pwWakeUp)
+               => stackLift (sys.(sleepNanosecs) n (pwSSB (inr (SSB.ssbWakeUp))))
              | inr SSB.ssbGetNanosecs
-               => stackLift (sys.(getNanosecs) pwClocksGot)
+               => stackLift (sys.(getNanosecs) (pwSSB ∘ inr ∘ SSB.ssbClocksGot))
            end).
 
     Definition
@@ -216,7 +200,7 @@ Module MakePwMgr
                | netGotUpdate new
                  => stackPush (pwSSB (inr (SSB.ssbServerGotUpdate new)))
                | netHttpPOST uri data cb
-                 => stackLift (httpPOST sys uri data (fun r => pwMgrNetInput (cb r)))
+                 => stackLift (httpPOST sys uri data (fun r => pwNET (cb r)))
              end).
 
     Definition
